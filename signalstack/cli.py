@@ -17,6 +17,8 @@ def run() -> None:
     if not articles:
         print("No articles fetched. Check network or feed availability.")
         return
+    if len(articles) < 3:
+        print("Warning: very few articles fetched. Network or feed issue likely.")
 
     top_n = 5
     typer.echo(f"[DEBUG] Ranking {len(articles)} articles with top_n={top_n}")
