@@ -1,35 +1,35 @@
-from pathlib import Path
 import typer
 
-from signalstack.ingestion.feed_loader import load_feeds
-from signalstack.ingestion.rss_reader import fetch_articles
-from signalstack.agents.ranker import rank_articles
+from signalstack.pipeline import PipelineConfig, run_pipeline
 
 
 app = typer.Typer()
 
 
 @app.command()
-def run() -> None:
-    feeds_path = Path(__file__).resolve().parent / "data" / "feeds.yaml"
-    feed_urls = load_feeds(str(feeds_path))
-    articles = fetch_articles(feed_urls)
-    if not articles:
-        print("No articles fetched. Check network or feed availability.")
+def run(
+    top_n: int = typer.Option(5, help="Number of top ranked articles to keep."),
+    max_age_days: int = typer.Option(
+        7, help="How many days to keep seen URLs before expiring."
+    ),
+    min_content_length: int = typer.Option(
+        300, help="Minimum extracted content length to keep as article content."
+    ),
+) -> None:
+    config = PipelineConfig(
+        top_n=top_n,
+        max_age_days=max_age_days,
+        min_content_length=min_content_length,
+    )
+    top_articles = run_pipeline(config=config)
+    if not top_articles:
         return
-    if len(articles) < 3:
-        print("Warning: very few articles fetched. Network or feed issue likely.")
-
-    top_n = 5
-    typer.echo(f"[DEBUG] Ranking {len(articles)} articles with top_n={top_n}")
-    top_articles = rank_articles(articles, top_n=top_n)
-    typer.echo(f"[DEBUG] Ranked result count: {len(top_articles)}")
 
     typer.echo(f"Found {len(top_articles)} top articles.")
     print("\nTop ranked articles:\n")
     for article in top_articles:
-        title = article.get("title", "")
-        url = article.get("link", "")
+        title = article.title
+        url = article.link
         typer.echo(f"- {title}\n  {url}")
 
 

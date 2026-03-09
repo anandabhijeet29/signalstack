@@ -1,7 +1,9 @@
-from typing import Dict, List
+from typing import List
 
 import feedparser
 import requests
+
+from signalstack.models.article import Article
 
 
 HEADERS = {
@@ -9,8 +11,8 @@ HEADERS = {
 }
 
 
-def fetch_articles(feed_urls: List[str]) -> List[Dict]:
-    articles: List[Dict] = []
+def fetch_articles(feed_urls: List[str]) -> List[Article]:
+    articles: List[Article] = []
 
     for feed_url in feed_urls:
         print(f"Fetching feed: {feed_url}")
@@ -49,12 +51,12 @@ def fetch_articles(feed_urls: List[str]) -> List[Dict]:
 
         for entry in entries:
             articles.append(
-                {
-                    "title": entry.get("title", ""),
-                    "link": entry.get("link", ""),
-                    "source": source,
-                    "summary": entry.get("summary", ""),
-                }
+                Article(
+                    title=getattr(entry, "title", "") or entry.get("title", ""),
+                    link=getattr(entry, "link", "") or entry.get("link", ""),
+                    source=source or "Unknown",
+                    summary=getattr(entry, "summary", None) or entry.get("summary"),
+                )
             )
 
     return articles

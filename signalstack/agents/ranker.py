@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import List
 import re
+
+from signalstack.models.article import Article
 
 
 KEYWORDS = (
@@ -15,9 +17,9 @@ KEYWORDS = (
 )
 
 
-def _score_article(article: Dict) -> float:
-    title = str(article.get("title", "")).strip()
-    summary = str(article.get("summary", "")).strip()
+def _score_article(article: Article) -> float:
+    title = article.title.strip()
+    summary = (article.summary or "").strip()
     searchable_text = f"{title} {summary}".lower()
 
     # Reward clear, descriptive titles without letting very long titles dominate.
@@ -32,22 +34,16 @@ def _score_article(article: Dict) -> float:
     return title_length_score + keyword_score
 
 
-def rank_articles(articles: List[Dict], top_n: int = 5) -> List[Dict]:
+def rank_articles(articles: List[Article], top_n: int = 5) -> List[Article]:
     print(f"Ranker received {len(articles)} articles")
 
     if top_n <= 0 or not articles:
         print("Ranker returning 0 articles")
         return []
 
-    scored_articles = []
-    for article in articles:
-        scored = dict(article)
-        scored["score"] = _score_article(article)
-        scored_articles.append(scored)
-
     ranked = sorted(
-        scored_articles,
-        key=lambda a: (-a["score"], str(a.get("title", "")).lower()),
+        articles,
+        key=lambda article: (-_score_article(article), article.title.lower()),
     )
     result = ranked[:top_n]
 
