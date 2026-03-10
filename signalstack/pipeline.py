@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from signalstack.agents.ranker import rank_articles
+from signalstack.agents.summarizer import summarize_article
 from signalstack.ingestion.feed_loader import load_feeds
 from signalstack.ingestion.rss_reader import fetch_articles
 from signalstack.models.article import Article
@@ -18,11 +19,14 @@ from signalstack.processing.extractor import extract_article_text
 @dataclass
 class PipelineConfig:
     top_n: int = 5
+    candidate_pool_size: int = 10
     max_age_days: int = 7
     min_content_length: int = 300
 
 
-def run_pipeline(config: Optional[PipelineConfig] = None) -> List[Article]:
+def run_pipeline(
+    config: Optional[PipelineConfig] = None,
+) -> Tuple[List[Article], List[Dict]]:
     print("Starting SignalStack pipeline")
     cfg = config or PipelineConfig()
 
@@ -36,7 +40,7 @@ def run_pipeline(config: Optional[PipelineConfig] = None) -> List[Article]:
 
     if not articles:
         print("No articles fetched. Check network or feed availability.")
-        return []
+        return [], []
 
     seen_urls = load_seen_urls(str(seen_store_path), max_age_days=cfg.max_age_days)
     new_articles = filter_new_articles(articles, seen_urls)
@@ -46,26 +50,52 @@ def run_pipeline(config: Optional[PipelineConfig] = None) -> List[Article]:
 
     if len(new_articles) == 0:
         print("No new articles today")
-        return []
+        return [], []
+
+    print("Extracting previews for ranking...")
+    for article in new_articles:
+        try:
+            preview_text = extract_article_text(article.link)
+            if preview_text:
+                article.preview = preview_text[:1500]
+            else:
+                article.preview = article.summary
+        except Exception:
+            article.preview = article.summary
 
     print("Ranking articles")
-    top_articles = rank_articles(new_articles, top_n=cfg.top_n)
+    candidate_count = max(cfg.candidate_pool_size, cfg.top_n)
+    ranked_articles = rank_articles(new_articles, top_n=candidate_count)
+    print(f"Ranking complete: {len(ranked_articles)} articles selected")
 
-    print("Extracting article content")
-    for article in top_articles:
+    print("Generating summaries")
+    summaries: List[Dict] = []
+    summarized_articles: List[Article] = []
+    print(f"Attempting summarization from {len(ranked_articles)} candidate articles")
+    for article in ranked_articles:
         try:
             extracted = extract_article_text(article.link)
-            if extracted and len(extracted) < cfg.min_content_length:
-                print(f"Content below min length for article: {article.link}")
-                article.content = None
-            else:
+            if extracted and len(extracted) >= cfg.min_content_length:
                 article.content = extracted
+            else:
+                article.content = None
+            summary = summarize_article(article)
+            if summary:
+                summaries.append(summary)
+                summarized_articles.append(article)
+                if len(summaries) == cfg.top_n:
+                    break
         except Exception:
-            print(f"Extraction failed for article: {article.link}")
+            print(f"Summarization failed for article: {article.link}")
             continue
+    print(f"{len(summaries)} summaries successfully generated")
 
     updated_seen_urls = update_seen_urls(new_articles, seen_urls)
     save_seen_urls(str(seen_store_path), updated_seen_urls)
 
+    if len(summaries) == 0:
+        print("No valid articles could be summarized. Digest generation skipped.")
+        return [], []
+
     print("Pipeline complete")
-    return top_articles
+    return summarized_articles, summaries

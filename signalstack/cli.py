@@ -21,11 +21,12 @@ def run(
         max_age_days=max_age_days,
         min_content_length=min_content_length,
     )
-    top_articles = run_pipeline(config=config)
+    top_articles, summaries = run_pipeline(config=config)
     if not top_articles:
         return
 
     typer.echo(f"Found {len(top_articles)} top articles.")
+    typer.echo(f"Generated {len(summaries)} summaries.")
     print("\nTop ranked articles:\n")
     for article in top_articles:
         title = article.title

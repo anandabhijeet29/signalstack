@@ -8,6 +8,7 @@ class Article:
     link: str
     source: str
     summary: Optional[str] = None
+    preview: Optional[str] = None
     content: Optional[str] = None
 
     def has_content(self) -> bool:

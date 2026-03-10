@@ -19,8 +19,8 @@ KEYWORDS = (
 
 def _score_article(article: Article) -> float:
     title = article.title.strip()
-    summary = (article.summary or "").strip()
-    searchable_text = f"{title} {summary}".lower()
+    preview = (article.preview or "").strip()
+    searchable_text = f"{title} {preview}".lower()
 
     # Reward clear, descriptive titles without letting very long titles dominate.
     title_length_score = min(len(title), 120) / 12.0
