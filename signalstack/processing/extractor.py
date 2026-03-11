@@ -3,6 +3,15 @@ from typing import Optional
 import trafilatura
 
 
+def looks_like_text(text: str) -> bool:
+    if not text:
+        return False
+
+    printable_chars = sum(c.isprintable() for c in text)
+    ratio = printable_chars / len(text)
+    return ratio > 0.85
+
+
 def extract_article_text(url: str) -> Optional[str]:
     print(f"Extracting article: {url}")
 
@@ -28,6 +37,11 @@ def extract_article_text(url: str) -> Optional[str]:
 
     if text is None:
         print("Extraction returned no content")
+        return None
+
+    print("Running text sanity check...")
+    if not looks_like_text(text):
+        print(f"Corrupted or binary content detected: {url}")
         return None
 
     cleaned_text = text.strip()

@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from signalstack.agents.ranker import rank_articles
 from signalstack.agents.summarizer import summarize_article
+from signalstack.digest.generator import generate_digest, save_digest
 from signalstack.ingestion.feed_loader import load_feeds
 from signalstack.ingestion.rss_reader import fetch_articles
 from signalstack.models.article import Article
@@ -22,6 +23,7 @@ class PipelineConfig:
     candidate_pool_size: int = 10
     max_age_days: int = 7
     min_content_length: int = 300
+    vault_path: Optional[str] = None
 
 
 def run_pipeline(
@@ -93,8 +95,16 @@ def run_pipeline(
     updated_seen_urls = update_seen_urls(new_articles, seen_urls)
     save_seen_urls(str(seen_store_path), updated_seen_urls)
 
-    if len(summaries) == 0:
-        print("No valid articles could be summarized. Digest generation skipped.")
+    if summaries:
+        print("Generating intelligence digest...")
+        markdown = generate_digest(summaries)
+        vault_path = (
+            cfg.vault_path
+            or "/Users/abhijeetanand/Documents/Obsidian Vault/Intelligence/SignalStack"
+        )
+        save_digest(markdown, vault_path)
+    else:
+        print("No summaries generated. Digest skipped.")
         return [], []
 
     print("Pipeline complete")

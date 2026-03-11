@@ -15,11 +15,15 @@ def run(
     min_content_length: int = typer.Option(
         300, help="Minimum extracted content length to keep as article content."
     ),
+    vault_path: str = typer.Option(
+        "", help="Path to Obsidian vault folder where digest markdown is saved."
+    ),
 ) -> None:
     config = PipelineConfig(
         top_n=top_n,
         max_age_days=max_age_days,
         min_content_length=min_content_length,
+        vault_path=vault_path or None,
     )
     top_articles, summaries = run_pipeline(config=config)
     if not top_articles:
