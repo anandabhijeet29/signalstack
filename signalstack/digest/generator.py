@@ -5,6 +5,11 @@ from pathlib import Path
 
 def generate_digest(summaries: List[Dict]) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
+    sorted_summaries = sorted(
+        summaries,
+        key=lambda item: int(item.get("importance_score", 0)),
+        reverse=True,
+    )
 
     lines = [
         "---",
@@ -21,7 +26,7 @@ def generate_digest(summaries: List[Dict]) -> str:
         "",
     ]
 
-    for summary in summaries:
+    for summary in sorted_summaries:
         title = summary.get("title", "Untitled")
         source = summary.get("source", "Unknown")
         reading_time = summary.get("reading_time", 0)
