@@ -1,9 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
 
-def generate_digest(summaries: List[Dict]) -> str:
+def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
     sorted_summaries = sorted(
         summaries,
@@ -25,6 +25,12 @@ def generate_digest(summaries: List[Dict]) -> str:
         "## Top Signals",
         "",
     ]
+
+    if themes:
+        lines.extend(["## Major Themes This Week", ""])
+        for theme in themes:
+            lines.append(f"• {theme}")
+        lines.extend(["", "---", ""])
 
     for summary in sorted_summaries:
         title = summary.get("title", "Untitled")

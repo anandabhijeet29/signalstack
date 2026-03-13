@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from signalstack.agents.ranker import rank_articles
 from signalstack.agents.summarizer import summarize_article
+from signalstack.agents.synthesizer import synthesize_themes
 from signalstack.digest.generator import generate_digest, save_digest
 from signalstack.ingestion.feed_loader import load_feeds
 from signalstack.ingestion.rss_reader import fetch_articles
@@ -54,20 +55,30 @@ def run_pipeline(
         print("No new articles today")
         return [], []
 
-    print("Extracting previews for ranking...")
+    candidate_count = max(cfg.candidate_pool_size, cfg.top_n)
     for article in new_articles:
+        article.preview = article.summary
+
+    print("Initial ranking articles")
+    initial_ranked = rank_articles(new_articles, top_n=candidate_count)
+    print(f"Initial ranking complete: {len(initial_ranked)} candidates selected")
+
+    print("Extracting previews for top candidates...")
+    extraction_cache: Dict[str, Optional[str]] = {}
+    for article in initial_ranked:
         try:
-            preview_text = extract_article_text(article.link)
-            if preview_text:
-                article.preview = preview_text[:1500]
+            extracted = extract_article_text(article.link)
+            extraction_cache[article.link] = extracted
+            if extracted:
+                article.preview = extracted[:1500]
             else:
                 article.preview = article.summary
         except Exception:
+            extraction_cache[article.link] = None
             article.preview = article.summary
 
-    print("Ranking articles")
-    candidate_count = max(cfg.candidate_pool_size, cfg.top_n)
-    ranked_articles = rank_articles(new_articles, top_n=candidate_count)
+    print("Re-ranking with extracted previews")
+    ranked_articles = rank_articles(initial_ranked, top_n=candidate_count)
     print(f"Ranking complete: {len(ranked_articles)} articles selected")
 
     print("Generating summaries")
@@ -76,7 +87,7 @@ def run_pipeline(
     print(f"Attempting summarization from {len(ranked_articles)} candidate articles")
     for article in ranked_articles:
         try:
-            extracted = extract_article_text(article.link)
+            extracted = extraction_cache.get(article.link)
             if extracted and len(extracted) >= cfg.min_content_length:
                 article.content = extracted
             else:
@@ -96,8 +107,14 @@ def run_pipeline(
     save_seen_urls(str(seen_store_path), updated_seen_urls)
 
     if summaries:
+        themes = synthesize_themes(summaries)
+        if themes:
+            print(f"Synthesized {len(themes)} cross-article themes")
+        else:
+            print("Theme synthesis failed or returned no themes")
+
         print("Generating intelligence digest...")
-        markdown = generate_digest(summaries)
+        markdown = generate_digest(summaries, themes=themes or [])
         vault_path = (
             cfg.vault_path
             or "/Users/abhijeetanand/Documents/Obsidian Vault/Intelligence/SignalStack"
