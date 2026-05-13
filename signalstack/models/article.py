@@ -11,8 +11,8 @@ class Article:
     preview: Optional[str] = None
     content: Optional[str] = None
 
-    def has_content(self) -> bool:
-        return bool(self.content and len(self.content.strip()) > 300)
+    def has_content(self, min_length: int = 300) -> bool:
+        return bool(self.content and len(self.content.strip()) > min_length)
 
     def short_title(self) -> str:
         return self.title[:80]

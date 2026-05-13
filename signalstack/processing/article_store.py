@@ -1,9 +1,12 @@
-import json
 import datetime
-from typing import Dict, List, Set
+import json
+import logging
 from pathlib import Path
+from typing import Dict, List, Set
 
 from signalstack.models.article import Article
+
+logger = logging.getLogger(__name__)
 
 
 def load_seen_urls(path: str, max_age_days: int = 7) -> Dict[str, str]:
@@ -11,9 +14,7 @@ def load_seen_urls(path: str, max_age_days: int = 7) -> Dict[str, str]:
     now_utc = datetime.datetime.now(datetime.timezone.utc)
 
     if not store_path.exists():
-        print("Seen store not found. Starting with empty seen URLs.")
-        print("Loaded 0 seen URLs")
-        print("Removed 0 expired URLs from seen store")
+        logger.debug("Seen store not found, starting fresh")
         return {}
 
     try:
@@ -22,12 +23,9 @@ def load_seen_urls(path: str, max_age_days: int = 7) -> Dict[str, str]:
         if not isinstance(seen_urls, dict):
             raise ValueError("Invalid seen_urls structure")
     except Exception:
-        print("Seen store missing/corrupted. Falling back to empty seen URLs.")
-        print("Loaded 0 seen URLs")
-        print("Removed 0 expired URLs from seen store")
+        logger.warning("Seen store corrupted, falling back to empty")
         return {}
 
-    loaded_count = len(seen_urls)
     cleaned_seen_urls: Dict[str, str] = {}
     removed_expired = 0
     cutoff = now_utc - datetime.timedelta(days=max_age_days)
@@ -52,8 +50,7 @@ def load_seen_urls(path: str, max_age_days: int = 7) -> Dict[str, str]:
 
         cleaned_seen_urls[url] = seen_at
 
-    print(f"Loaded {loaded_count} seen URLs")
-    print(f"Removed {removed_expired} expired URLs from seen store")
+    logger.debug("Loaded %d seen URLs, removed %d expired", len(cleaned_seen_urls), removed_expired)
     return cleaned_seen_urls
 
 
@@ -63,31 +60,23 @@ def save_seen_urls(path: str, seen_urls: Dict[str, str]) -> None:
 
     payload = {"seen_urls": seen_urls}
     store_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"Saved {len(seen_urls)} seen URLs")
+    logger.debug("Saved %d seen URLs", len(seen_urls))
 
 
 def filter_new_articles(
     articles: List[Article], seen_urls: Dict[str, str]
 ) -> List[Article]:
     seen_url_set: Set[str] = set(seen_urls.keys())
-    filtered_count = 0
     new_articles: List[Article] = []
 
     for article in articles:
         link = article.link.strip()
-        if not link:
-            filtered_count += 1
-            continue
-
-        if link in seen_url_set:
-            filtered_count += 1
+        if not link or link in seen_url_set:
             continue
 
         new_articles.append(article)
         seen_url_set.add(link)
 
-    print(f"Filtered {filtered_count} articles")
-    print(f"New articles remaining: {len(new_articles)}")
     return new_articles
 
 
@@ -95,7 +84,7 @@ def update_seen_urls(
     articles: List[Article], seen_urls: Dict[str, str]
 ) -> Dict[str, str]:
     updated_seen_urls = dict(seen_urls)
-    timestamp = datetime.datetime.now().replace(microsecond=0).isoformat()
+    timestamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
     for article in articles:
         link = article.link.strip()

@@ -1,9 +1,9 @@
 from typing import List
+
 import yaml
 
 
 def load_feeds(path: str) -> List[str]:
-    """Load RSS feed URLs from a YAML file under the `feeds` key."""
     with open(path, "r", encoding="utf-8") as file:
         data = yaml.safe_load(file) or {}
 

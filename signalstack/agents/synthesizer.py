@@ -1,10 +1,26 @@
 from typing import List, Dict, Optional
 import json
+import os
 
 from openai import OpenAI
 
 
-client = OpenAI()
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+client: Optional[OpenAI] = None
+
+
+def _get_client() -> Optional[OpenAI]:
+    global client
+    if client is not None:
+        return client
+
+    try:
+        client = OpenAI()
+    except Exception:
+        client = None
+    return client
+
 
 SYSTEM_PROMPT = (
     "You are an analyst producing a weekly intelligence briefing from multiple "
@@ -21,28 +37,30 @@ USER_PROMPT = (
 
 
 def synthesize_themes(summaries: List[Dict]) -> Optional[List[str]]:
-    print("Synthesizing major themes across articles..")
+    if not summaries:
+        return []
+
+    llm_client = _get_client()
+    if llm_client is None:
+        return None
+
+    blocks: List[str] = []
+    for item in summaries:
+        title = str(item.get("title", "")).strip()
+        tldr = str(item.get("tldr", "")).strip()
+        insights = item.get("key_insights", []) or []
+
+        lines = [f"Title: {title}", f"TLDR: {tldr}", "Insights:"]
+        for insight in insights:
+            lines.append(f"- {insight}")
+        blocks.append("\n".join(lines))
+
+    combined_text = "\n\n".join(blocks)
 
     try:
-        if not summaries:
-            return []
-
-        blocks: List[str] = []
-        for item in summaries:
-            title = str(item.get("title", "")).strip()
-            tldr = str(item.get("tldr", "")).strip()
-            insights = item.get("key_insights", []) or []
-
-            lines = [f"Title: {title}", f"TLDR: {tldr}", "Insights:"]
-            for insight in insights:
-                lines.append(f"- {insight}")
-            blocks.append("\n".join(lines))
-
-        combined_text = "\n\n".join(blocks)
-
         try:
-            response = client.responses.create(
-                model="gpt-5.3-chat-latest",
+            response = llm_client.responses.create(
+                model=MODEL_NAME,
                 input=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"{USER_PROMPT}\n\n{combined_text}"},
@@ -50,9 +68,8 @@ def synthesize_themes(summaries: List[Dict]) -> Optional[List[str]]:
                 temperature=0.2,
             )
         except Exception:
-            # Fallback for models that do not accept temperature in Responses API.
-            response = client.responses.create(
-                model="gpt-5.3-chat-latest",
+            response = llm_client.responses.create(
+                model=MODEL_NAME,
                 input=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"{USER_PROMPT}\n\n{combined_text}"},
@@ -67,5 +84,4 @@ def synthesize_themes(summaries: List[Dict]) -> Optional[List[str]]:
         cleaned = [str(theme).strip() for theme in themes if str(theme).strip()]
         return cleaned or None
     except Exception:
-        print("Theme synthesis failed")
         return None

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signalstack"
+version = "0.1.0"
+description = "AI-powered intelligence agent that reads newsletters, extracts high-signal insights, and generates a personalized digest."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "feedparser>=6.0",
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+    "requests>=2.30",
+    "rich>=13.0",
+    "trafilatura>=1.0",
+    "typer>=0.9",
+]
+
+[project.scripts]
+signalstack = "signalstack.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["signalstack*"]
+
+[tool.setuptools.package-data]
+signalstack = ["data/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

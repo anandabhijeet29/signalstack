@@ -1,3 +1,6 @@
+# SignalStack runtime data
+signalstack/data/seen_articles.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -15,7 +16,9 @@ from signalstack.processing.article_store import (
     save_seen_urls,
     update_seen_urls,
 )
-from signalstack.processing.extractor import extract_article_text
+from signalstack.processing.extractor import extract_articles_concurrent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -24,13 +27,14 @@ class PipelineConfig:
     candidate_pool_size: int = 10
     max_age_days: int = 7
     min_content_length: int = 300
+    max_entries_per_feed: int = 5
     vault_path: Optional[str] = None
 
 
 def run_pipeline(
     config: Optional[PipelineConfig] = None,
 ) -> Tuple[List[Article], List[Dict]]:
-    print("Starting SignalStack pipeline")
+    logger.info("Starting SignalStack pipeline")
     cfg = config or PipelineConfig()
 
     data_dir = Path(__file__).resolve().parent / "data"
@@ -38,53 +42,48 @@ def run_pipeline(
     seen_store_path = data_dir / "seen_articles.json"
 
     feed_urls = load_feeds(str(feeds_path))
-    articles = fetch_articles(feed_urls)
-    print(f"Fetched {len(articles)} articles")
+    articles = fetch_articles(feed_urls, max_entries=cfg.max_entries_per_feed)
+    logger.info("Fetched %d articles", len(articles))
 
     if not articles:
-        print("No articles fetched. Check network or feed availability.")
+        logger.warning("No articles fetched. Check network or feed availability.")
         return [], []
 
     seen_urls = load_seen_urls(str(seen_store_path), max_age_days=cfg.max_age_days)
     new_articles = filter_new_articles(articles, seen_urls)
     filtered_count = len(articles) - len(new_articles)
-    print(f"Filtered {filtered_count} seen articles")
-    print(f"{len(new_articles)} new articles remaining")
+    logger.info("Filtered %d seen articles, %d new remaining", filtered_count, len(new_articles))
 
     if len(new_articles) == 0:
-        print("No new articles today")
+        logger.info("No new articles today")
         return [], []
 
     candidate_count = max(cfg.candidate_pool_size, cfg.top_n)
     for article in new_articles:
         article.preview = article.summary
 
-    print("Initial ranking articles")
+    logger.info("Initial ranking of articles")
     initial_ranked = rank_articles(new_articles, top_n=candidate_count)
-    print(f"Initial ranking complete: {len(initial_ranked)} candidates selected")
+    logger.info("Initial ranking complete: %d candidates selected", len(initial_ranked))
 
-    print("Extracting previews for top candidates...")
-    extraction_cache: Dict[str, Optional[str]] = {}
+    logger.info("Extracting previews for top candidates")
+    urls = [a.link for a in initial_ranked]
+    extraction_cache = extract_articles_concurrent(urls, min_content_length=cfg.min_content_length)
     for article in initial_ranked:
-        try:
-            extracted = extract_article_text(article.link)
-            extraction_cache[article.link] = extracted
-            if extracted:
-                article.preview = extracted[:1500]
-            else:
-                article.preview = article.summary
-        except Exception:
-            extraction_cache[article.link] = None
+        extracted = extraction_cache.get(article.link)
+        if extracted:
+            article.preview = extracted[:1500]
+        else:
             article.preview = article.summary
 
-    print("Re-ranking with extracted previews")
+    logger.info("Re-ranking with extracted previews")
     ranked_articles = rank_articles(initial_ranked, top_n=candidate_count)
-    print(f"Ranking complete: {len(ranked_articles)} articles selected")
+    logger.info("Ranking complete: %d articles selected", len(ranked_articles))
 
-    print("Generating summaries")
+    logger.info("Generating summaries")
     summaries: List[Dict] = []
     summarized_articles: List[Article] = []
-    print(f"Attempting summarization from {len(ranked_articles)} candidate articles")
+    logger.debug("Attempting summarization from %d candidate articles", len(ranked_articles))
     for article in ranked_articles:
         try:
             extracted = extraction_cache.get(article.link)
@@ -92,37 +91,36 @@ def run_pipeline(
                 article.content = extracted
             else:
                 article.content = None
-            summary = summarize_article(article)
+            summary = summarize_article(article, min_content_length=cfg.min_content_length)
             if summary:
                 summaries.append(summary)
                 summarized_articles.append(article)
                 if len(summaries) == cfg.top_n:
                     break
         except Exception:
-            print(f"Summarization failed for article: {article.link}")
+            logger.warning("Summarization failed for article: %s", article.link)
             continue
-    print(f"{len(summaries)} summaries successfully generated")
+    logger.info("%d summaries successfully generated", len(summaries))
 
-    updated_seen_urls = update_seen_urls(new_articles, seen_urls)
+    updated_seen_urls = update_seen_urls(summarized_articles, seen_urls)
     save_seen_urls(str(seen_store_path), updated_seen_urls)
 
     if summaries:
         themes = synthesize_themes(summaries)
         if themes:
-            print(f"Synthesized {len(themes)} cross-article themes")
+            logger.info("Synthesized %d cross-article themes", len(themes))
         else:
-            print("Theme synthesis failed or returned no themes")
+            logger.warning("Theme synthesis failed or returned no themes")
 
-        print("Generating intelligence digest...")
+        logger.info("Generating intelligence digest")
         markdown = generate_digest(summaries, themes=themes or [])
-        vault_path = (
-            cfg.vault_path
-            or "/Users/abhijeetanand/Documents/Obsidian Vault/Intelligence/SignalStack"
-        )
-        save_digest(markdown, vault_path)
+        if cfg.vault_path:
+            save_digest(markdown, cfg.vault_path)
+        else:
+            print(markdown)
     else:
-        print("No summaries generated. Digest skipped.")
+        logger.warning("No summaries generated. Digest skipped.")
         return [], []
 
-    print("Pipeline complete")
+    logger.info("Pipeline complete")
     return summarized_articles, summaries

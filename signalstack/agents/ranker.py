@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import List
+import logging
 import re
+from typing import List
 
 from signalstack.models.article import Article
 
+logger = logging.getLogger(__name__)
 
 KEYWORDS = (
     "ai",
@@ -22,7 +24,6 @@ def _score_article(article: Article) -> float:
     preview = (article.preview or "").strip()
     searchable_text = f"{title} {preview}".lower()
 
-    # Reward clear, descriptive titles without letting very long titles dominate.
     title_length_score = min(len(title), 120) / 12.0
 
     keyword_hits = 0
@@ -35,10 +36,7 @@ def _score_article(article: Article) -> float:
 
 
 def rank_articles(articles: List[Article], top_n: int = 5) -> List[Article]:
-    print(f"Ranker received {len(articles)} articles")
-
     if top_n <= 0 or not articles:
-        print("Ranker returning 0 articles")
         return []
 
     ranked = sorted(
@@ -47,5 +45,5 @@ def rank_articles(articles: List[Article], top_n: int = 5) -> List[Article]:
     )
     result = ranked[:top_n]
 
-    print(f"Ranker returning {len(result)} articles")
+    logger.debug("Ranked %d articles, returning top %d", len(articles), len(result))
     return result

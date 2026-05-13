@@ -1,6 +1,9 @@
-from typing import List, Dict, Optional
+import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -> str:
@@ -22,14 +25,12 @@ def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -
         "",
         f"Week of {date_str}",
         "",
-        "## Top Signals",
-        "",
     ]
 
     if themes:
         lines.extend(["## Major Themes This Week", ""])
         for theme in themes:
-            lines.append(f"• {theme}")
+            lines.append(f"- {theme}")
         lines.extend(["", "---", ""])
 
     for summary in sorted_summaries:
@@ -59,7 +60,7 @@ def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -
         )
 
         for insight in insights:
-            lines.append(f"• {insight}")
+            lines.append(f"- {insight}")
 
         lines.extend(
             [
@@ -82,4 +83,4 @@ def save_digest(markdown: str, vault_path: str) -> None:
 
     file_path = vault_dir / f"signalstack_weekly_{date_str}.md"
     file_path.write_text(markdown, encoding="utf-8")
-    print(f"Digest saved to {file_path}")
+    logger.info("Digest saved to %s", file_path)
