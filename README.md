@@ -28,7 +28,7 @@ Add or remove feeds in [`signalstack/data/feeds.yaml`](signalstack/data/feeds.ya
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/signalstack.git
+git clone https://github.com/anandabhijeet29/signalstack.git
 cd signalstack
 
 # Create a virtual environment
