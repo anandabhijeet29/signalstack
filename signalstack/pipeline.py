@@ -16,6 +16,7 @@ from signalstack.processing.article_store import (
     save_seen_urls,
     update_seen_urls,
 )
+from signalstack.agents.investigator import InvestigatorAgent
 from signalstack.processing.extractor import extract_articles_concurrent
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ class PipelineConfig:
     min_content_length: int = 300
     max_entries_per_feed: int = 5
     vault_path: Optional[str] = None
+    investigate: bool = False
+    max_steps: int = 5
+    max_urls: int = 10
 
 
 def run_pipeline(
@@ -112,8 +116,27 @@ def run_pipeline(
         else:
             logger.warning("Theme synthesis failed or returned no themes")
 
+        investigation_log: Optional[str] = None
+        if cfg.investigate:
+            logger.info("Running agentic investigation")
+            agent = InvestigatorAgent(
+                summaries,
+                max_steps=cfg.max_steps,
+                max_urls=cfg.max_urls,
+            )
+            trace = agent.investigate()
+            if trace:
+                log_md = trace.to_markdown()
+                investigation_log = log_md if log_md else None
+                if investigation_log:
+                    logger.info("Investigation log generated (%d chars)", len(investigation_log))
+                else:
+                    logger.warning("Investigation produced no log content")
+            else:
+                logger.warning("Investigation returned no trace")
+
         logger.info("Generating intelligence digest")
-        markdown = generate_digest(summaries, themes=themes or [])
+        markdown = generate_digest(summaries, themes=themes or [], investigation_log=investigation_log)
         if cfg.vault_path:
             save_digest(markdown, cfg.vault_path)
         else:

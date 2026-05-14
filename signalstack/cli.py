@@ -28,6 +28,21 @@ def run(
     vault_path: str = typer.Option(
         "", help="Path to Obsidian vault folder where digest markdown is saved."
     ),
+    investigate: bool = typer.Option(
+        False,
+        "--investigate",
+        help="Run the agentic investigator after summarization. Requires OPENAI_API_KEY.",
+    ),
+    max_steps: int = typer.Option(
+        5,
+        "--max-steps",
+        help="Maximum number of tool-call steps the investigator can make.",
+    ),
+    max_urls: int = typer.Option(
+        10,
+        "--max-urls",
+        help="Maximum number of URLs the investigator can fetch.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
     logging.basicConfig(
@@ -41,6 +56,9 @@ def run(
         min_content_length=min_content_length,
         max_entries_per_feed=max_entries_per_feed,
         vault_path=vault_path or None,
+        investigate=investigate,
+        max_steps=max_steps,
+        max_urls=max_urls,
     )
     top_articles, summaries = run_pipeline(config=config)
     if not top_articles:

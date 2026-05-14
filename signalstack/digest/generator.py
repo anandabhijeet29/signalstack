@@ -6,7 +6,11 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -> str:
+def generate_digest(
+    summaries: List[Dict],
+    themes: Optional[List[str]] = None,
+    investigation_log: Optional[str] = None,
+) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
     sorted_summaries = sorted(
         summaries,
@@ -32,6 +36,9 @@ def generate_digest(summaries: List[Dict], themes: Optional[List[str]] = None) -
         for theme in themes:
             lines.append(f"- {theme}")
         lines.extend(["", "---", ""])
+
+    if investigation_log:
+        lines.extend([investigation_log, "", "---", ""])
 
     for summary in sorted_summaries:
         title = summary.get("title", "Untitled")
