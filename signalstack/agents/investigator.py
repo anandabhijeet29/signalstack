@@ -28,7 +28,10 @@ from signalstack.agents.trace import InvestigationTrace
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+# Investigator uses a more capable model by default — multi-step tool-use
+# reasoning benefits from it. Override with ANTHROPIC_INVESTIGATOR_MODEL.
+# Cheaper tasks (summarizer, synthesizer) use ANTHROPIC_MODEL (haiku).
+MODEL_NAME = os.getenv("ANTHROPIC_INVESTIGATOR_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-sonnet-3-5"))
 
 _client: Optional[Anthropic] = None
 

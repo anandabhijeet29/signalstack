@@ -323,7 +323,7 @@ class DebateOrchestrator:
 
             try:
                 resp = anthropic_client.messages.create(
-                    model=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5"),
+                    model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5"),
                     max_tokens=200,
                     system=system_prompt,
                     messages=messages,

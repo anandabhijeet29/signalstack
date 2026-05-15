@@ -5,7 +5,7 @@ import os
 from anthropic import Anthropic
 
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
 
 client: Optional[Anthropic] = None
 

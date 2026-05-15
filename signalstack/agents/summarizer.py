@@ -9,7 +9,7 @@ from signalstack.models.article import Article
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
 
 client: Optional[Anthropic] = None
 

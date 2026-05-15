@@ -23,7 +23,7 @@ from signalstack.agents.trace import InvestigationTrace
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
 
 # Fallback scaffold used when the LLM call fails or returns bad JSON.
 _DEFAULT_SCAFFOLD: Dict[str, Any] = {
