@@ -19,6 +19,10 @@ dependencies = [
     "trafilatura>=1.0",
     "typer>=0.9",
     "tavily-python>=0.3",
+    "elevenlabs>=2.0",
+    "sounddevice>=0.4",
+    "pydub>=0.25",
+    "numpy>=1.24",
 ]
 
 [project.scripts]
