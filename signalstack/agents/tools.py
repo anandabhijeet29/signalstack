@@ -9,18 +9,17 @@ from signalstack.processing.extractor import extract_article_text
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# OpenAI JSON Schema-format tool definitions
+# Anthropic tool definitions (input_schema, no "type": "function" wrapper)
 # ---------------------------------------------------------------------------
 
 TOOL_SCHEMAS: List[Dict] = [
     {
-        "type": "function",
         "name": "search_web",
         "description": (
             "Search the web for articles, papers, or news related to a topic. "
             "Use to find sources that confirm, contradict, or expand on a claim from the digest."
         ),
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
@@ -35,13 +34,12 @@ TOOL_SCHEMAS: List[Dict] = [
         },
     },
     {
-        "type": "function",
         "name": "fetch_and_extract",
         "description": (
             "Fetch a URL and extract its main text content. "
             "Use to read a specific article, paper, or page in full."
         ),
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "url": {
@@ -53,13 +51,12 @@ TOOL_SCHEMAS: List[Dict] = [
         },
     },
     {
-        "type": "function",
         "name": "find_related",
         "description": (
             "Find articles from the current digest that are related to a specific "
             "topic or claim. Use to surface connections between articles."
         ),
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "topic": {

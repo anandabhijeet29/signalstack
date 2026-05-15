@@ -3,24 +3,24 @@ import logging
 import os
 from typing import Dict, Optional
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 from signalstack.models.article import Article
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
 
-client: Optional[OpenAI] = None
+client: Optional[Anthropic] = None
 
 
-def _get_client() -> Optional[OpenAI]:
+def _get_client() -> Optional[Anthropic]:
     global client
     if client is not None:
         return client
 
     try:
-        client = OpenAI()
+        client = Anthropic()
     except Exception:
         client = None
     return client
@@ -66,7 +66,7 @@ def summarize_article(
     try:
         llm_client = _get_client()
         if llm_client is None:
-            logger.warning("OpenAI client unavailable, skipping: %s", article.title)
+            logger.warning("Anthropic client unavailable, skipping: %s", article.title)
             return None
 
         if not article.content or len(article.content) < min_content_length:
@@ -77,10 +77,11 @@ def summarize_article(
         words = len(article.content.split())
         reading_time = round(words / 200)
 
-        response = llm_client.responses.create(
+        response = llm_client.messages.create(
             model=MODEL_NAME,
-            input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=[
                 {
                     "role": "user",
                     "content": (
@@ -91,7 +92,8 @@ def summarize_article(
                 },
             ],
         )
-        parsed = json.loads(response.output_text)
+        output_text = response.content[0].text
+        parsed = json.loads(output_text)
 
         result = {
             "title": article.title,

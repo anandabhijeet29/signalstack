@@ -14,6 +14,13 @@ def _make_article(content_length: int = 1000) -> Article:
     )
 
 
+def _make_anthropic_response(data: dict) -> MagicMock:
+    """Build a minimal Anthropic messages.create response mock."""
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text=json.dumps(data))]
+    return mock_response
+
+
 class TestSummarizeArticle:
     @patch("signalstack.agents.summarizer._get_client")
     def test_no_client_returns_none(self, mock_get_client):
@@ -35,15 +42,13 @@ class TestSummarizeArticle:
 
     @patch("signalstack.agents.summarizer._get_client")
     def test_successful_summarization(self, mock_get_client):
-        mock_response = MagicMock()
-        mock_response.output_text = json.dumps({
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_anthropic_response({
             "tldr": "Test TLDR",
             "summary": "Test summary",
             "key_insights": ["Insight 1", "Insight 2"],
             "importance_score": 7,
         })
-        mock_client = MagicMock()
-        mock_client.responses.create.return_value = mock_response
         mock_get_client.return_value = mock_client
 
         result = summarize_article(_make_article())
@@ -56,9 +61,9 @@ class TestSummarizeArticle:
     @patch("signalstack.agents.summarizer._get_client")
     def test_malformed_json_returns_none(self, mock_get_client):
         mock_response = MagicMock()
-        mock_response.output_text = "not json"
+        mock_response.content = [MagicMock(text="not json")]
         mock_client = MagicMock()
-        mock_client.responses.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
         mock_get_client.return_value = mock_client
 
         result = summarize_article(_make_article())
@@ -67,7 +72,7 @@ class TestSummarizeArticle:
     @patch("signalstack.agents.summarizer._get_client")
     def test_api_error_returns_none(self, mock_get_client):
         mock_client = MagicMock()
-        mock_client.responses.create.side_effect = Exception("API error")
+        mock_client.messages.create.side_effect = Exception("API error")
         mock_get_client.return_value = mock_client
 
         result = summarize_article(_make_article())
@@ -75,12 +80,10 @@ class TestSummarizeArticle:
 
     @patch("signalstack.agents.summarizer._get_client")
     def test_reading_time_calculated(self, mock_get_client):
-        mock_response = MagicMock()
-        mock_response.output_text = json.dumps({
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_anthropic_response({
             "tldr": "t", "summary": "s", "key_insights": [], "importance_score": 5,
         })
-        mock_client = MagicMock()
-        mock_client.responses.create.return_value = mock_response
         mock_get_client.return_value = mock_client
 
         article = Article(

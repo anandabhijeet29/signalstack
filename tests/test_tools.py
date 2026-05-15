@@ -122,12 +122,12 @@ class TestGetAvailableTools:
         assert "find_related" in names
 
     def test_tool_schemas_have_required_fields(self):
+        """Anthropic tool format: name, description, input_schema (no 'type' wrapper)."""
         tools = get_available_tools()
         for tool in tools:
-            assert "type" in tool
             assert "name" in tool
             assert "description" in tool
-            assert "parameters" in tool
+            assert "input_schema" in tool
 
 
 class TestDispatchTool:
