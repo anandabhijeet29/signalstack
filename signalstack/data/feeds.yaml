@@ -1,6 +1,20 @@
+# SignalStack RSS feeds.
+# All feeds here should be freely accessible without a subscription.
+# Paywalled feeds (Stratechery, Not Boring, Noah Pinion) return nav-only
+# HTML that trafilatura correctly rejects as having no article content.
+
 feeds:
-  - https://stratechery.com/feed/
-  - https://www.noahpinion.blog/feed
-  - https://www.notboring.co/feed
-  - https://www.latent.space/feed
-  - https://thezvi.substack.com/feed
+  # AI research & engineering
+  - https://thegradient.pub/rss/                 # The Gradient — ML research essays
+  - https://simonwillison.net/atom/everything/   # Simon Willison — AI/LLM tooling
+  - https://www.deeplearning.ai/the-batch/rss.xml  # The Batch — Andrew Ng weekly
+  - https://importai.substack.com/feed           # Import AI — Jack Clark (some free)
+  - https://interconnects.ai/feed                # Nathan Lambert — RLHF / open models
+
+  # Tech & industry analysis
+  - https://www.wheresyoured.at/rss/             # Ed Zitron — AI critique
+  - https://www.ben-evans.com/benedictevans/rss.xml  # Benedict Evans — tech strategy
+
+  # Keep: these Substack feeds have enough free posts to extract
+  - https://www.latent.space/feed               # Latent Space — AI engineering
+  - https://thezvi.substack.com/feed            # Zvi — AI safety & weekly roundups
