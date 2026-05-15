@@ -159,26 +159,22 @@ class TestDebateOrchestratorTTSFallback:
         mock_sd.play = MagicMock()
         mock_sd.wait = MagicMock()
 
-        mock_openai_response = MagicMock()
-        mock_openai_response.choices[0].message.content = "This is a debate response."
-
-        mock_el_tts = MagicMock(return_value=iter([b"pcm_audio"]))
+        mock_anthropic_response = MagicMock()
+        mock_anthropic_response.content = [MagicMock(text="This is a debate response.")]
 
         with patch("signalstack.agents.debate_agent.DebateOrchestrator._stream_audio_from_bytes"):
-            with patch("openai.OpenAI") as MockOpenAI, patch("elevenlabs.client.ElevenLabs") as MockEL:
-                mock_openai_client = MagicMock()
-                mock_openai_client.chat.completions.create.return_value = mock_openai_response
-                MockOpenAI.return_value = mock_openai_client
+            with patch("anthropic.Anthropic") as MockAnthropic, patch("elevenlabs.client.ElevenLabs") as MockEL:
+                mock_anthropic_client = MagicMock()
+                mock_anthropic_client.messages.create.return_value = mock_anthropic_response
+                MockAnthropic.return_value = mock_anthropic_client
 
                 mock_el_client = MagicMock()
                 mock_el_client.text_to_speech.convert.return_value = iter([b"pcm_audio"])
                 MockEL.return_value = mock_el_client
 
                 orchestrator = self._make_orchestrator(max_turns=4)
-                # Directly call _run_tts_fallback to avoid ElevenLabs client construction
-                # (client is constructed inside the method)
+                # Directly call _run_tts_fallback to avoid live API calls
                 with patch.object(orchestrator, "_stream_audio_from_bytes"):
-                    # We patch the internals to avoid live calls
                     pass
 
         # Simpler: verify turns_used matches max_turns via budget

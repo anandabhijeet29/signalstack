@@ -16,7 +16,7 @@ Architecture:
         - All chunks accumulated in memory; written to MP3 via pydub at end
 
     Fallback (--no-conversational-ai):
-        OpenAI chat.completions for text generation + elevenlabs.generate() for TTS.
+        Anthropic messages.create for text generation + elevenlabs.generate() for TTS.
         Still uses ElevenLabs platform — just separates text and audio synthesis.
 
     SDK version: elevenlabs>=2.0 (tested with 2.47.0)
@@ -136,7 +136,7 @@ class DebateOrchestrator:
         threading.Event waits for callback_agent_response before proceeding.
 
     Fallback path (use_conversational_ai=False):
-        OpenAI generates text, elevenlabs.generate() synthesizes audio.
+        Anthropic generates text, elevenlabs.generate() synthesizes audio.
         Activated via --no-conversational-ai CLI flag.
 
     Usage:
@@ -297,16 +297,16 @@ class DebateOrchestrator:
         scaffold: Dict[str, Any],
         context: "AsymmetricContext",
     ) -> List[TurnRecord]:
-        """Fallback: OpenAI generates turn text, ElevenLabs TTS synthesizes audio.
+        """Fallback: Anthropic generates turn text, ElevenLabs TTS synthesizes audio.
 
         Activated via --no-conversational-ai. Still uses ElevenLabs platform for
         voice synthesis — just separates text generation from audio synthesis.
         """
+        from anthropic import Anthropic
         from elevenlabs.client import ElevenLabs
-        from openai import OpenAI
 
         el = ElevenLabs(api_key=self.api_key)
-        openai_client = OpenAI()
+        anthropic_client = Anthropic()
 
         turns: List[TurnRecord] = []
         first_topic = scaffold["topics"][0]
@@ -322,15 +322,15 @@ class DebateOrchestrator:
             name, system_prompt, agent_id = personas[speaker_idx % 2]
 
             try:
-                resp = openai_client.chat.completions.create(
-                    model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                    messages=[{"role": "system", "content": system_prompt}] + messages,
-                    temperature=0.8,
+                resp = anthropic_client.messages.create(
+                    model=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5"),
                     max_tokens=200,
+                    system=system_prompt,
+                    messages=messages,
                 )
-                text = resp.choices[0].message.content or ""
+                text = resp.content[0].text
             except Exception as e:
-                logger.warning("OpenAI call failed for %s: %s", name, e)
+                logger.warning("Anthropic call failed for %s: %s", name, e)
                 break
 
             if not text.strip():

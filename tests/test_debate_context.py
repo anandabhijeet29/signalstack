@@ -67,10 +67,10 @@ def _make_summaries():
 
 
 class TestBuildScaffold:
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_valid_trace_returns_scaffold_dict(self, mock_client_fn):
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = json.dumps(
+        mock_response.content = [MagicMock(text=json.dumps(
             {
                 "title": "AI Scaling Debate",
                 "topics": [
@@ -84,9 +84,9 @@ class TestBuildScaffold:
                     }
                 ],
             }
-        )
+        ))]
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
         mock_client_fn.return_value = mock_client
 
         trace = _make_trace()
@@ -96,13 +96,13 @@ class TestBuildScaffold:
         assert len(result["topics"]) >= 1
         assert result["topics"][0]["claim"] == "Training compute is hitting a wall"
 
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_empty_trace_returns_default_scaffold(self, mock_client_fn):
         """When trace has no conclusion and no steps, falls back to default."""
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = json.dumps(_DEFAULT_SCAFFOLD)
+        mock_response.content = [MagicMock(text=json.dumps(_DEFAULT_SCAFFOLD))]
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
         mock_client_fn.return_value = mock_client
 
         from signalstack.agents.trace import InvestigationTrace
@@ -113,10 +113,10 @@ class TestBuildScaffold:
         # No context → default scaffold returned
         assert result == _DEFAULT_SCAFFOLD
 
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_llm_exception_returns_default_scaffold(self, mock_client_fn):
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("API timeout")
+        mock_client.messages.create.side_effect = Exception("API timeout")
         mock_client_fn.return_value = mock_client
 
         trace = _make_trace()
@@ -124,12 +124,12 @@ class TestBuildScaffold:
 
         assert result == _DEFAULT_SCAFFOLD
 
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_malformed_json_returns_default_scaffold(self, mock_client_fn):
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = "not valid json {"
+        mock_response.content = [MagicMock(text="not valid json {")]
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
         mock_client_fn.return_value = mock_client
 
         trace = _make_trace()
@@ -137,12 +137,12 @@ class TestBuildScaffold:
 
         assert result == _DEFAULT_SCAFFOLD
 
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_missing_topics_key_returns_default_scaffold(self, mock_client_fn):
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = json.dumps({"title": "no topics key"})
+        mock_response.content = [MagicMock(text=json.dumps({"title": "no topics key"}))]
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
         mock_client_fn.return_value = mock_client
 
         trace = _make_trace()
@@ -150,7 +150,7 @@ class TestBuildScaffold:
 
         assert result == _DEFAULT_SCAFFOLD
 
-    @patch("signalstack.agents.debate_context._get_openai_client")
+    @patch("signalstack.agents.debate_context._get_anthropic_client")
     def test_no_openai_client_returns_default_scaffold(self, mock_client_fn):
         mock_client_fn.return_value = None
 

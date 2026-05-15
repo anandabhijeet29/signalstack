@@ -17,19 +17,47 @@ def _make_summaries(n: int = 2):
     ]
 
 
-def _make_tool_call(name: str, args: dict, call_id: str = "call_1"):
-    mock = MagicMock()
-    mock.type = "function_call"
-    mock.name = name
-    mock.arguments = json.dumps(args)
-    mock.id = call_id
-    return mock
+# ---------------------------------------------------------------------------
+# Anthropic response mock helpers
+# ---------------------------------------------------------------------------
+# Anthropic tool-use pattern:
+#   - response.stop_reason == "tool_use"  → tool calls present
+#   - response.stop_reason == "end_turn"  → LLM finished
+#   - response.content = list of blocks
+#     - text block:     block.type == "text",     block.text
+#     - tool_use block: block.type == "tool_use", block.name, block.input (dict), block.id
 
 
-def _make_response(tool_calls=None, output_text="Investigation complete."):
+def _make_text_block(text: str) -> MagicMock:
+    block = MagicMock()
+    block.type = "text"
+    block.text = text
+    return block
+
+
+def _make_tool_call(name: str, args: dict, call_id: str = "call_1") -> MagicMock:
+    block = MagicMock()
+    block.type = "tool_use"
+    block.name = name
+    block.input = args  # Anthropic passes input as a dict, not JSON string
+    block.id = call_id
+    return block
+
+
+def _make_response(tool_calls=None, output_text="Investigation complete.") -> MagicMock:
+    """Build a mock Anthropic messages.create response.
+
+    If tool_calls is provided, stop_reason is "tool_use" and content contains
+    the tool_use blocks. Otherwise stop_reason is "end_turn" and content
+    contains a single text block.
+    """
     mock = MagicMock()
-    mock.output = tool_calls or []
-    mock.output_text = output_text
+    if tool_calls:
+        mock.stop_reason = "tool_use"
+        mock.content = tool_calls
+    else:
+        mock.stop_reason = "end_turn"
+        mock.content = [_make_text_block(output_text)]
     return mock
 
 
@@ -77,14 +105,14 @@ class TestInvestigatorAgent:
     @patch("signalstack.agents.investigator._get_client")
     def test_immediate_conclusion_no_tool_calls(self, mock_get_client, mock_get_tools):
         """LLM decides to conclude immediately without any tool calls."""
-        mock_get_tools.return_value = [{"type": "function", "name": "search_web"}]
+        mock_get_tools.return_value = [{"name": "search_web", "input_schema": {}}]
 
         final_response = _make_response(
-            tool_calls=[],
+            tool_calls=None,
             output_text="## Investigation Log\n\nNothing new to report this week.",
         )
         mock_client = MagicMock()
-        mock_client.responses.create.return_value = final_response
+        mock_client.messages.create.return_value = final_response
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries())
@@ -101,18 +129,18 @@ class TestInvestigatorAgent:
         self, mock_get_client, mock_get_tools, mock_dispatch
     ):
         """One tool call followed by a conclusion."""
-        mock_get_tools.return_value = [{"type": "function", "name": "search_web"}]
+        mock_get_tools.return_value = [{"name": "search_web", "input_schema": {}}]
         mock_dispatch.return_value = "Found relevant paper about AI scaling."
 
         tool_call = _make_tool_call("search_web", {"query": "AI scaling 2026"})
         step_response = _make_response(tool_calls=[tool_call])
         final_response = _make_response(
-            tool_calls=[],
+            tool_calls=None,
             output_text="## Investigation Log\n\n### Thread: \"AI scaling\"\n**Key finding:** Scaling laws are changing.",
         )
 
         mock_client = MagicMock()
-        mock_client.responses.create.side_effect = [step_response, final_response]
+        mock_client.messages.create.side_effect = [step_response, final_response]
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries())
@@ -129,7 +157,7 @@ class TestInvestigatorAgent:
     @patch("signalstack.agents.investigator._get_client")
     def test_budget_exhausted_stops_loop(self, mock_get_client, mock_get_tools, mock_dispatch):
         """Loop stops when max_steps is reached."""
-        mock_get_tools.return_value = [{"type": "function", "name": "search_web"}]
+        mock_get_tools.return_value = [{"name": "search_web", "input_schema": {}}]
         mock_dispatch.return_value = "Result"
 
         # Always return a tool call — loop must stop via budget
@@ -137,7 +165,7 @@ class TestInvestigatorAgent:
         always_tool = _make_response(tool_calls=[tool_call])
 
         mock_client = MagicMock()
-        mock_client.responses.create.return_value = always_tool
+        mock_client.messages.create.return_value = always_tool
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries(), max_steps=2)
@@ -155,14 +183,14 @@ class TestInvestigatorAgent:
         self, mock_get_client, mock_get_tools, mock_dispatch
     ):
         """Loop stops after MAX_CONSECUTIVE_FAILURES tool failures."""
-        mock_get_tools.return_value = [{"type": "function", "name": "fetch_and_extract"}]
+        mock_get_tools.return_value = [{"name": "fetch_and_extract", "input_schema": {}}]
         mock_dispatch.side_effect = Exception("network error")
 
         tool_call = _make_tool_call("fetch_and_extract", {"url": "https://example.com"})
         always_tool = _make_response(tool_calls=[tool_call])
 
         mock_client = MagicMock()
-        mock_client.responses.create.return_value = always_tool
+        mock_client.messages.create.return_value = always_tool
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries(), max_steps=10)
@@ -180,12 +208,12 @@ class TestInvestigatorAgent:
         self, mock_get_client, mock_get_tools, mock_dispatch
     ):
         """Tool failure is recorded in the trace as success=False."""
-        mock_get_tools.return_value = [{"type": "function", "name": "search_web"}]
+        mock_get_tools.return_value = [{"name": "search_web", "input_schema": {}}]
         mock_dispatch.side_effect = [Exception("API error"), Exception("API error"), Exception("API error")]
 
         tool_call = _make_tool_call("search_web", {"query": "test"})
         mock_client = MagicMock()
-        mock_client.responses.create.return_value = _make_response(tool_calls=[tool_call])
+        mock_client.messages.create.return_value = _make_response(tool_calls=[tool_call])
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries(), max_steps=10)
@@ -198,9 +226,9 @@ class TestInvestigatorAgent:
     @patch("signalstack.agents.investigator._get_client")
     def test_api_error_returns_none(self, mock_get_client, mock_get_tools):
         """Unrecoverable API error returns None."""
-        mock_get_tools.return_value = [{"type": "function", "name": "search_web"}]
+        mock_get_tools.return_value = [{"name": "search_web", "input_schema": {}}]
         mock_client = MagicMock()
-        mock_client.responses.create.side_effect = Exception("Connection refused")
+        mock_client.messages.create.side_effect = Exception("Connection refused")
         mock_get_client.return_value = mock_client
 
         agent = InvestigatorAgent(_make_summaries())

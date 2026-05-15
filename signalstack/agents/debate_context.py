@@ -17,13 +17,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from openai import OpenAI
+from anthropic import Anthropic
 
 from signalstack.agents.trace import InvestigationTrace
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 
 # Fallback scaffold used when the LLM call fails or returns bad JSON.
 _DEFAULT_SCAFFOLD: Dict[str, Any] = {
@@ -86,9 +86,9 @@ def build_scaffold(
     Returns:
         Scaffold dict with 'title' and 'topics' keys. Never raises.
     """
-    client = _get_openai_client()
+    client = _get_anthropic_client()
     if client is None:
-        logger.warning("No OpenAI client — using default scaffold")
+        logger.warning("No Anthropic client — using default scaffold")
         return _DEFAULT_SCAFFOLD
 
     # Build context for the LLM prompt
@@ -120,19 +120,15 @@ def build_scaffold(
     )
 
     try:
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=MODEL_NAME,
+            max_tokens=2048,
+            system="You generate structured debate scaffolds. Return only valid JSON.",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You generate structured debate scaffolds. Return only valid JSON.",
-                },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.3,
-            response_format={"type": "json_object"},
         )
-        raw = response.choices[0].message.content or ""
+        raw = response.content[0].text
         scaffold = json.loads(raw)
         if "topics" not in scaffold or not scaffold["topics"]:
             logger.warning("Scaffold missing 'topics' key — using default")
@@ -255,18 +251,18 @@ DEBATE RULES:
     )
 
 
-# --- OpenAI client singleton ---
+# --- Anthropic client singleton ---
 
-_openai_client: Optional[OpenAI] = None
+_anthropic_client: Optional[Anthropic] = None
 
 
-def _get_openai_client() -> Optional[OpenAI]:
-    global _openai_client
-    if _openai_client is not None:
-        return _openai_client
+def _get_anthropic_client() -> Optional[Anthropic]:
+    global _anthropic_client
+    if _anthropic_client is not None:
+        return _anthropic_client
     try:
-        _openai_client = OpenAI()
+        _anthropic_client = Anthropic()
     except Exception as e:
-        logger.warning("Failed to create OpenAI client: %s", e)
-        _openai_client = None
-    return _openai_client
+        logger.warning("Failed to create Anthropic client: %s", e)
+        _anthropic_client = None
+    return _anthropic_client

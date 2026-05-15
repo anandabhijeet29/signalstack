@@ -35,7 +35,7 @@ def run(
     investigate: bool = typer.Option(
         False,
         "--investigate",
-        help="Run the agentic investigator after summarization. Requires OPENAI_API_KEY.",
+        help="Run the agentic investigator after summarization. Requires ANTHROPIC_API_KEY.",
     ),
     max_steps: int = typer.Option(
         5,
@@ -99,7 +99,7 @@ def debate(
         "--no-conversational-ai",
         help=(
             "Use TTS fallback instead of ElevenAgents Conversation. "
-            "OpenAI generates turn text, ElevenLabs synthesizes audio."
+            "Anthropic generates turn text, ElevenLabs synthesizes audio."
         ),
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
@@ -107,7 +107,7 @@ def debate(
     """Run a live AI voice debate from a SignalStack investigation.
 
     Requires: ELEVENLABS_API_KEY, ELEVENLABS_SKEPTIC_AGENT_ID, ELEVENLABS_OPTIMIST_AGENT_ID
-    and (for debate scaffold generation) OPENAI_API_KEY.
+    and (for debate scaffold generation) ANTHROPIC_API_KEY.
 
     Example:
         signalstack run --investigate --vault-path ~/vault

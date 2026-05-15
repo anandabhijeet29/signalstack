@@ -2,21 +2,21 @@ from typing import List, Dict, Optional
 import json
 import os
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 
-client: Optional[OpenAI] = None
+client: Optional[Anthropic] = None
 
 
-def _get_client() -> Optional[OpenAI]:
+def _get_client() -> Optional[Anthropic]:
     global client
     if client is not None:
         return client
 
     try:
-        client = OpenAI()
+        client = Anthropic()
     except Exception:
         client = None
     return client
@@ -58,25 +58,17 @@ def synthesize_themes(summaries: List[Dict]) -> Optional[List[str]]:
     combined_text = "\n\n".join(blocks)
 
     try:
-        try:
-            response = llm_client.responses.create(
-                model=MODEL_NAME,
-                input=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"{USER_PROMPT}\n\n{combined_text}"},
-                ],
-                temperature=0.2,
-            )
-        except Exception:
-            response = llm_client.responses.create(
-                model=MODEL_NAME,
-                input=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"{USER_PROMPT}\n\n{combined_text}"},
-                ],
-            )
+        response = llm_client.messages.create(
+            model=MODEL_NAME,
+            max_tokens=512,
+            system=SYSTEM_PROMPT,
+            messages=[
+                {"role": "user", "content": f"{USER_PROMPT}\n\n{combined_text}"},
+            ],
+        )
 
-        parsed = json.loads(response.output_text)
+        output_text = response.content[0].text
+        parsed = json.loads(output_text)
         themes = parsed.get("themes")
         if not isinstance(themes, list):
             return None

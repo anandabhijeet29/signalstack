@@ -1,38 +1,44 @@
-"""Agentic research investigator using the OpenAI Responses API.
+"""Agentic research investigator using the Anthropic Messages API.
 
 The investigator receives the week's article summaries, autonomously decides
 which threads are worth exploring, uses tools to fetch evidence, and writes a
 visible investigation log explaining every decision and discovery.
 
-Uses raw OpenAI tool-use (no agent framework) so the architecture is fully
+Uses raw Anthropic tool-use (no agent framework) so the architecture is fully
 transparent and auditable.
+
+Tool-use pattern (Anthropic):
+  1. messages.create(tools=tools) → response with stop_reason="tool_use"
+  2. Append {"role": "assistant", "content": response.content}
+  3. Process each tool_use block: block.name, block.input (dict), block.id
+  4. Append {"role": "user", "content": [{"type": "tool_result", ...}]}
+  5. Repeat until stop_reason="end_turn" (no more tool calls)
 """
 
-import json
 import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 from signalstack.agents.tools import dispatch_tool, get_available_tools
 from signalstack.agents.trace import InvestigationTrace
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 
-_client: Optional[OpenAI] = None
+_client: Optional[Anthropic] = None
 
 
-def _get_client() -> Optional[OpenAI]:
+def _get_client() -> Optional[Anthropic]:
     global _client
     if _client is not None:
         return _client
     try:
-        _client = OpenAI()
+        _client = Anthropic()
     except Exception:
         _client = None
     return _client
@@ -88,7 +94,7 @@ class ResearchBudget:
 class InvestigatorAgent:
     """Agentic research investigator.
 
-    Runs an agent loop using the OpenAI Responses API with a hand-rolled tool
+    Runs an agent loop using the Anthropic Messages API with a hand-rolled tool
     registry. The loop terminates when the LLM produces no tool calls (natural
     completion) or the research budget is exhausted.
 
@@ -121,7 +127,7 @@ class InvestigatorAgent:
         """
         llm_client = _get_client()
         if llm_client is None:
-            logger.warning("OpenAI client unavailable, skipping investigation")
+            logger.warning("Anthropic client unavailable, skipping investigation")
             return None
 
         tools = get_available_tools()
@@ -129,8 +135,8 @@ class InvestigatorAgent:
             logger.warning("No investigation tools available")
             return None
 
-        messages: List[Dict] = [
-            {"role": "system", "content": _build_system_prompt()},
+        system_prompt = _build_system_prompt()
+        messages: List[Dict[str, Any]] = [
             {"role": "user", "content": self._build_summaries_context()},
         ]
 
@@ -147,32 +153,38 @@ class InvestigatorAgent:
 
         try:
             while not budget.exhausted:
-                response = llm_client.responses.create(
+                response = llm_client.messages.create(
                     model=MODEL_NAME,
-                    input=messages,
+                    max_tokens=4096,
+                    system=system_prompt,
                     tools=tools,
+                    messages=messages,
                 )
 
-                # Responses API: tool calls appear as items in response.output
-                # with type == "function_call".
-                tool_calls = [
-                    item
-                    for item in response.output
-                    if item.type == "function_call"
-                ]
-
-                if not tool_calls:
-                    # LLM produced no tool calls — it's done; output is the log.
-                    trace.add_conclusion(response.output_text or "Investigation complete.")
+                # Anthropic: stop_reason="tool_use" means tool calls present,
+                # stop_reason="end_turn" means the agent is done.
+                if response.stop_reason == "end_turn":
+                    text_blocks = [b for b in response.content if b.type == "text"]
+                    conclusion = text_blocks[0].text if text_blocks else "Investigation complete."
+                    trace.add_conclusion(conclusion)
                     break
 
-                # Append full response.output before tool results to preserve
-                # multi-turn context (Responses API requirement).
-                messages.extend(response.output)
+                tool_calls = [b for b in response.content if b.type == "tool_use"]
+                if not tool_calls:
+                    # Unexpected: no tool calls but not end_turn either
+                    text_blocks = [b for b in response.content if b.type == "text"]
+                    conclusion = text_blocks[0].text if text_blocks else "Investigation complete."
+                    trace.add_conclusion(conclusion)
+                    break
 
+                # Append assistant turn (with tool_use blocks) to message history
+                messages.append({"role": "assistant", "content": response.content})
+
+                # Process tool calls and collect results
+                tool_results = []
                 for call in tool_calls:
-                    args = json.loads(call.arguments)
                     tool_name = call.name
+                    args = call.input  # dict, not JSON string (Anthropic difference)
 
                     logger.debug("Agent calling: %s args=%s", tool_name, args)
 
@@ -192,12 +204,11 @@ class InvestigatorAgent:
                         success=success,
                     )
 
-                    # Feed result back using Responses API format.
-                    messages.append(
+                    tool_results.append(
                         {
-                            "type": "function_call_output",
-                            "call_id": call.id,
-                            "output": result_text,
+                            "type": "tool_result",
+                            "tool_use_id": call.id,
+                            "content": result_text,
                         }
                     )
 
@@ -214,6 +225,9 @@ class InvestigatorAgent:
                             "Investigation cut short due to repeated tool failures."
                         )
                         return trace
+
+                # Append all tool results as a single user message
+                messages.append({"role": "user", "content": tool_results})
 
             if budget.exhausted and not trace.conclusion:
                 trace.add_conclusion(
