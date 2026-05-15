@@ -5,9 +5,11 @@ import re
 from datetime import date
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+# Search upward from cwd so .env works whether running from the project root,
+# a worktree, or any subdirectory. Falls back to the path next to pyproject.toml.
+load_dotenv(find_dotenv(usecwd=True) or Path(__file__).resolve().parents[1] / ".env")
 
 import typer
 
