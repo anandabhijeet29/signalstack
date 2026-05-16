@@ -323,7 +323,7 @@ class DebateOrchestrator:
 
             try:
                 resp = anthropic_client.messages.create(
-                    model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5"),
+                    model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
                     max_tokens=200,
                     system=system_prompt,
                     messages=messages,
@@ -419,6 +419,87 @@ class DebateOrchestrator:
         arr = np.frombuffer(audio_bytes, dtype=np.int16)
         sd.play(arr, samplerate=_SAMPLE_RATE)
         sd.wait()
+
+
+# ------------------------------------------------------------------
+# Text-only debate (no ElevenLabs required)
+# ------------------------------------------------------------------
+
+
+def run_text_debate(
+    summaries: List[Dict],
+    trace: Any = None,
+    rounds: int = 3,
+) -> Optional[str]:
+    """Pure-Anthropic turn-taking debate. Returns a markdown transcript.
+
+    No ElevenLabs or audio dependencies. Uses Haiku for both personas.
+    The debate runs ``rounds`` full cycles (skeptic + optimist per cycle).
+    """
+    from anthropic import Anthropic
+    from signalstack.agents.debate_context import (
+        build_asymmetric_context,
+        build_scaffold,
+        load_persona,
+    )
+
+    try:
+        client = Anthropic()
+    except Exception as exc:
+        logger.warning("Anthropic client unavailable for debate: %s", exc)
+        return None
+
+    try:
+        skeptic_persona = load_persona("skeptic")
+        optimist_persona = load_persona("optimist")
+    except Exception as exc:
+        logger.warning("Failed to load personas: %s — using defaults", exc)
+        skeptic_persona = {"name": "The Skeptic", "description": "A skeptical analyst."}
+        optimist_persona = {"name": "The Optimist", "description": "An optimistic analyst."}
+
+    scaffold = build_scaffold(trace, summaries)
+    context = build_asymmetric_context(trace, summaries, skeptic_persona, optimist_persona)
+
+    first_topic = scaffold["topics"][0]
+    opening = first_topic.get("skeptic_angle") or first_topic.get("claim", "What matters most in AI this week?")
+    title = scaffold.get("title", "AI Weekly Debate")
+
+    model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    personas = [
+        (skeptic_persona.get("name", "The Skeptic"), context.skeptic_system_prompt),
+        (optimist_persona.get("name", "The Optimist"), context.optimist_system_prompt),
+    ]
+
+    transcript: List[tuple] = []
+    last_text = opening
+
+    for turn in range(rounds * 2):
+        name, system_prompt = personas[turn % 2]
+        other_name = personas[(turn + 1) % 2][0]
+        prompt = last_text if turn == 0 else f"{other_name} said: {last_text}"
+
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=250,
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            last_text = resp.content[0].text.strip()
+            transcript.append((name, last_text))
+            logger.debug("Debate turn %d (%s): %d chars", turn + 1, name, len(last_text))
+        except Exception as exc:
+            logger.warning("Debate turn %d failed for %s: %s", turn + 1, name, exc)
+            break
+
+    if not transcript:
+        return None
+
+    lines = [f"## Debate: {title}", ""]
+    for speaker, text in transcript:
+        lines.append(f"**{speaker}:** {text}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------------

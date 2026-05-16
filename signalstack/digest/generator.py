@@ -10,6 +10,7 @@ def generate_digest(
     summaries: List[Dict],
     themes: Optional[List[str]] = None,
     investigation_log: Optional[str] = None,
+    debate_transcript: Optional[str] = None,
 ) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
     sorted_summaries = sorted(
@@ -39,6 +40,9 @@ def generate_digest(
 
     if investigation_log:
         lines.extend([investigation_log, "", "---", ""])
+
+    if debate_transcript:
+        lines.extend([debate_transcript, "", "---", ""])
 
     for summary in sorted_summaries:
         title = summary.get("title", "Untitled")

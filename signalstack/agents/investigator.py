@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Investigator uses a more capable model by default — multi-step tool-use
 # reasoning benefits from it. Override with ANTHROPIC_INVESTIGATOR_MODEL.
 # Cheaper tasks (summarizer, synthesizer) use ANTHROPIC_MODEL (haiku).
-MODEL_NAME = os.getenv("ANTHROPIC_INVESTIGATOR_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-sonnet-3-5"))
+MODEL_NAME = os.getenv("ANTHROPIC_INVESTIGATOR_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"))
 
 _client: Optional[Anthropic] = None
 

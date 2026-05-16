@@ -17,6 +17,7 @@ from signalstack.processing.article_store import (
     update_seen_urls,
 )
 from signalstack.agents.investigator import InvestigatorAgent
+from signalstack.agents.debate_agent import run_text_debate
 from signalstack.processing.extractor import extract_articles_concurrent
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ class PipelineConfig:
     max_entries_per_feed: int = 5
     vault_path: Optional[str] = None
     investigate: bool = False
+    debate: bool = False
+    debate_rounds: int = 3
     max_steps: int = 5
     max_urls: int = 10
 
@@ -117,6 +120,7 @@ def run_pipeline(
             logger.warning("Theme synthesis failed or returned no themes")
 
         investigation_log: Optional[str] = None
+        trace = None
         if cfg.investigate:
             logger.info("Running agentic investigation")
             agent = InvestigatorAgent(
@@ -135,8 +139,26 @@ def run_pipeline(
             else:
                 logger.warning("Investigation returned no trace")
 
+        debate_transcript: Optional[str] = None
+        if cfg.debate:
+            logger.info("Running text debate")
+            debate_transcript = run_text_debate(
+                summaries,
+                trace=trace,
+                rounds=cfg.debate_rounds,
+            )
+            if debate_transcript:
+                logger.info("Debate transcript generated (%d chars)", len(debate_transcript))
+            else:
+                logger.warning("Debate returned no transcript")
+
         logger.info("Generating intelligence digest")
-        markdown = generate_digest(summaries, themes=themes or [], investigation_log=investigation_log)
+        markdown = generate_digest(
+            summaries,
+            themes=themes or [],
+            investigation_log=investigation_log,
+            debate_transcript=debate_transcript,
+        )
         if cfg.vault_path:
             save_digest(markdown, cfg.vault_path)
         else:

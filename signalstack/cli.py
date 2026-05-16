@@ -47,6 +47,16 @@ def run(
         "--max-urls",
         help="Maximum number of URLs the investigator can fetch.",
     ),
+    debate: bool = typer.Option(
+        False,
+        "--debate",
+        help="Run a text debate between skeptic/optimist personas and include in digest.",
+    ),
+    debate_rounds: int = typer.Option(
+        3,
+        "--debate-rounds",
+        help="Number of debate rounds (one skeptic + one optimist turn per round).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
     logging.basicConfig(
@@ -61,6 +71,8 @@ def run(
         max_entries_per_feed=max_entries_per_feed,
         vault_path=vault_path or None,
         investigate=investigate,
+        debate=debate,
+        debate_rounds=debate_rounds,
         max_steps=max_steps,
         max_urls=max_urls,
     )
