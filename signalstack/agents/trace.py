@@ -62,6 +62,38 @@ class InvestigationTrace:
     def step_count(self) -> int:
         return len(self.steps)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain dict for JSON persistence."""
+        return {
+            "conclusion": self.conclusion,
+            "steps": [
+                {
+                    "step_num": s.step_num,
+                    "tool": s.tool,
+                    "args": s.args,
+                    "result": s.result,
+                    "success": s.success,
+                }
+                for s in self.steps
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "InvestigationTrace":
+        """Deserialize from a plain dict (as produced by to_dict)."""
+        trace = cls()
+        trace.conclusion = data.get("conclusion")
+        for raw in data.get("steps", []):
+            step = TraceStep(
+                step_num=raw.get("step_num", 0),
+                tool=raw.get("tool", ""),
+                args=raw.get("args", {}),
+                result=raw.get("result", ""),
+                success=raw.get("success", True),
+            )
+            trace.steps.append(step)
+        return trace
+
     def to_markdown(self) -> str:
         """Return the investigation log as markdown.
 

@@ -172,7 +172,7 @@ def debate(
         typer.echo(f"Loading investigation from: {investigation_path}")
         with open(investigation_path) as f:
             inv_data = json.load(f)
-        trace = InvestigationTrace.from_dict(inv_data) if hasattr(InvestigationTrace, "from_dict") else None
+        trace = InvestigationTrace.from_dict(inv_data)
         summaries = inv_data.get("summaries", [])
     else:
         typer.echo(
@@ -220,7 +220,12 @@ def debate(
     # --- Print transcript ---
     typer.echo("\n--- DEBATE TRANSCRIPT ---\n")
     for t in turns:
-        speaker_label = skeptic_persona["name"] if t.speaker == "skeptic" else optimist_persona["name"]
+        if t.speaker == "skeptic":
+            speaker_label = skeptic_persona["name"]
+        elif t.speaker == "optimist":
+            speaker_label = optimist_persona["name"]
+        else:
+            speaker_label = t.speaker.capitalize()
         typer.echo(f"{speaker_label}: {t.text}\n")
 
     # --- Save MP3 ---

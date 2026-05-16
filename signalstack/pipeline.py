@@ -1,5 +1,7 @@
+import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -161,6 +163,7 @@ def run_pipeline(
         )
         if cfg.vault_path:
             save_digest(markdown, cfg.vault_path)
+            _save_investigation_sidecar(cfg.vault_path, summaries, trace)
         else:
             print(markdown)
     else:
@@ -169,3 +172,21 @@ def run_pipeline(
 
     logger.info("Pipeline complete")
     return summarized_articles, summaries
+
+
+def _save_investigation_sidecar(
+    vault_path: str,
+    summaries: List[Dict],
+    trace: Optional[object],
+) -> None:
+    """Save summaries + investigation trace alongside the digest for voice debate."""
+    date_str = datetime.now().strftime("%Y_%m_%d")
+    sidecar_path = Path(vault_path) / f"investigation_{date_str}.json"
+    payload: Dict = {"summaries": summaries}
+    if trace is not None and hasattr(trace, "to_dict"):
+        payload.update(trace.to_dict())
+    try:
+        sidecar_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info("Investigation sidecar saved to %s", sidecar_path)
+    except Exception as exc:
+        logger.warning("Failed to save investigation sidecar: %s", exc)

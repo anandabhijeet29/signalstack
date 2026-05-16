@@ -33,6 +33,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
@@ -123,7 +124,13 @@ class DebateAudioInterface:
         return " ".join(self._transcript)
 
     def drain_audio_chunks(self) -> bytes:
-        """Return all accumulated audio as raw bytes."""
+        """Return all accumulated audio as raw bytes and discard the queue.
+
+        _audio_buffer and _audio_queue receive the same PCM chunks. We play
+        from the returned bytes, so the queue must be emptied to prevent the
+        caller from double-playing the same audio.
+        """
+        self.interrupt()  # discard queue contents (same data as _audio_buffer)
         return b"".join(self._audio_buffer)
 
 
@@ -211,20 +218,56 @@ class DebateOrchestrator:
             optimist_responses.append(text)
             optimist_event.set()
 
-        skeptic_conv = Conversation(
-            el,
-            agent_id=self.skeptic_agent_id,
-            requires_auth=True,
-            audio_interface=skeptic_iface,
-            callback_agent_response=on_skeptic_response,
-        )
-        optimist_conv = Conversation(
-            el,
-            agent_id=self.optimist_agent_id,
-            requires_auth=True,
-            audio_interface=optimist_iface,
-            callback_agent_response=on_optimist_response,
-        )
+        # Override agent config so each ConvAI session uses our debate system prompt
+        # and doesn't send an initial greeting (which would fire the callback before
+        # we inject our first message, causing the event to fire on the wrong text).
+        def _agent_override(system_prompt: str) -> Dict[str, Any]:
+            return {
+                "agent": {
+                    "prompt": {"prompt": system_prompt},
+                    "first_message": "",  # silence the greeting
+                }
+            }
+
+        try:
+            skeptic_conv = Conversation(
+                el,
+                agent_id=self.skeptic_agent_id,
+                requires_auth=True,
+                audio_interface=skeptic_iface,
+                callback_agent_response=on_skeptic_response,
+                override_agent_config=_agent_override(context.skeptic_system_prompt),
+            )
+            optimist_conv = Conversation(
+                el,
+                agent_id=self.optimist_agent_id,
+                requires_auth=True,
+                audio_interface=optimist_iface,
+                callback_agent_response=on_optimist_response,
+                override_agent_config=_agent_override(context.optimist_system_prompt),
+            )
+        except TypeError:
+            # Older SDK versions don't support override_agent_config — fall back without it.
+            # System prompts won't be injected; agents will use their dashboard configuration.
+            logger.warning(
+                "ElevenLabs SDK does not support override_agent_config — "
+                "agents will use their dashboard system prompt. "
+                "Upgrade elevenlabs to >=2.0 for full debate context injection."
+            )
+            skeptic_conv = Conversation(
+                el,
+                agent_id=self.skeptic_agent_id,
+                requires_auth=True,
+                audio_interface=skeptic_iface,
+                callback_agent_response=on_skeptic_response,
+            )
+            optimist_conv = Conversation(
+                el,
+                agent_id=self.optimist_agent_id,
+                requires_auth=True,
+                audio_interface=optimist_iface,
+                callback_agent_response=on_optimist_response,
+            )
 
         turns: List[TurnRecord] = []
         first_topic = scaffold["topics"][0]
@@ -242,6 +285,16 @@ class DebateOrchestrator:
             # Wait for both WebSocket connections to establish
             _wait_for_ws(skeptic_conv, label="skeptic")
             _wait_for_ws(optimist_conv, label="optimist")
+
+            # Flush any greeting callbacks that fired before our first send_user_message.
+            # Even with first_message="", some SDK versions still fire an empty callback.
+            time.sleep(1.0)
+            skeptic_event.clear()
+            optimist_event.clear()
+            skeptic_responses.clear()
+            optimist_responses.clear()
+            skeptic_iface.reset_for_turn()
+            optimist_iface.reset_for_turn()
 
             while not self.budget.exhausted:
                 name, conv, iface, event, responses = agents[speaker_idx % 2]
@@ -263,11 +316,11 @@ class DebateOrchestrator:
                     logger.warning("[%s] Empty response — ending debate early", name)
                     break
 
-                # Drain any remaining audio from the queue, then stream
-                time.sleep(0.5)  # brief pause for audio chunks to arrive after text callback
-                audio_bytes = iface.drain_audio_chunks()
+                # Wait for trailing PCM chunks to arrive after the transcript callback fires.
+                time.sleep(0.5)
+                audio_bytes = iface.drain_audio_chunks()  # also empties the queue
                 if audio_bytes:
-                    self._stream_audio(iface._audio_queue, audio_bytes)
+                    self._stream_audio_from_bytes(audio_bytes)
                     self._all_audio_chunks.append(audio_bytes)
 
                 turns.append(TurnRecord(speaker=name, text=agent_text, audio_bytes=audio_bytes))
@@ -299,68 +352,118 @@ class DebateOrchestrator:
     ) -> List[TurnRecord]:
         """Fallback: Anthropic generates turn text, ElevenLabs TTS synthesizes audio.
 
-        Activated via --no-conversational-ai. Still uses ElevenLabs platform for
-        voice synthesis — just separates text generation from audio synthesis.
+        Activated via --no-conversational-ai. Each turn is a stateless Anthropic call
+        (system prompt = persona context, user message = previous speaker's text).
+        TTS uses the voice_id from debate_personas.yaml, not the ConvAI agent ID.
         """
         from anthropic import Anthropic
         from elevenlabs.client import ElevenLabs
+        from signalstack.agents.debate_context import load_persona
 
         el = ElevenLabs(api_key=self.api_key)
         anthropic_client = Anthropic()
 
+        # Resolve voice IDs from persona config (not ConvAI agent IDs).
+        # ELEVENLABS_SKEPTIC_VOICE_ID / ELEVENLABS_OPTIMIST_VOICE_ID override the yaml defaults.
+        try:
+            skeptic_voice = os.getenv(
+                "ELEVENLABS_SKEPTIC_VOICE_ID",
+                load_persona("skeptic").get("default_voice_id", "EXAVITQu4vr4xnSDxMaL"),
+            )
+            optimist_voice = os.getenv(
+                "ELEVENLABS_OPTIMIST_VOICE_ID",
+                load_persona("optimist").get("default_voice_id", "TX3LPaxmHKxFdv7VOQHJ"),
+            )
+        except Exception:
+            skeptic_voice = "EXAVITQu4vr4xnSDxMaL"
+            optimist_voice = "TX3LPaxmHKxFdv7VOQHJ"
+
         turns: List[TurnRecord] = []
         first_topic = scaffold["topics"][0]
+        debate_title = scaffold.get("title", "AI Weekly Debate")
+        claim = first_topic.get("claim", "the week's biggest AI story")
 
         personas = [
-            ("skeptic", context.skeptic_system_prompt, self.skeptic_agent_id),
-            ("optimist", context.optimist_system_prompt, self.optimist_agent_id),
+            ("skeptic", context.skeptic_system_prompt, skeptic_voice),
+            ("optimist", context.optimist_system_prompt, optimist_voice),
         ]
-        messages = [{"role": "user", "content": first_topic.get("claim", "Discuss this week's AI news.")}]
-        speaker_idx = 0
 
-        while not self.budget.exhausted:
-            name, system_prompt, agent_id = personas[speaker_idx % 2]
+        model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
+        def _tts(text: str, voice_id: str) -> bytes:
             try:
-                resp = anthropic_client.messages.create(
-                    model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
-                    max_tokens=200,
-                    system=system_prompt,
-                    messages=messages,
-                )
-                text = resp.content[0].text
-            except Exception as e:
-                logger.warning("Anthropic call failed for %s: %s", name, e)
-                break
-
-            if not text.strip():
-                logger.warning("%s returned empty response — ending debate", name)
-                break
-
-            # ElevenLabs TTS — use the agent's configured voice_id via agent_id
-            # (agent_id doubles as voice reference for TTS fallback)
-            try:
-                audio_bytes = b"".join(
+                return b"".join(
                     el.text_to_speech.convert(
                         text=text,
-                        voice_id=agent_id,
+                        voice_id=voice_id,
                         output_format="pcm_16000",
                     )
                 )
             except Exception as e:
-                logger.warning("ElevenLabs TTS failed for %s: %s — skipping audio", name, e)
-                audio_bytes = b""
+                logger.warning("ElevenLabs TTS failed: %s — skipping audio", e)
+                return b""
 
-            if audio_bytes:
-                self._stream_audio_from_bytes(audio_bytes)
-                self._all_audio_chunks.append(audio_bytes)
+        def _speak(speaker: str, text: str, voice_id: str) -> None:
+            audio = _tts(text, voice_id)
+            if audio:
+                self._stream_audio_from_bytes(audio)
+                self._all_audio_chunks.append(audio)
+            turns.append(TurnRecord(speaker=speaker, text=text, audio_bytes=audio))
 
-            messages.append({"role": "assistant", "content": text})
-            messages.append({"role": "user", "content": text})
+        def _llm(system_prompt: str, user_content: str, max_tokens: int = 200) -> str:
+            resp = anthropic_client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            return resp.content[0].text.strip()
 
-            turns.append(TurnRecord(speaker=name, text=text, audio_bytes=audio_bytes))
+        # --- Intro narration (neutral, read by skeptic voice) ---
+        intro_text = (
+            f"Welcome to {debate_title}. "
+            f"This week's question: {claim}. "
+            "Two perspectives — a skeptic and an optimist — each with different evidence. Let's get into it."
+        )
+        _speak("intro", intro_text, skeptic_voice)
+
+        # --- Main debate turns ---
+        last_text = first_topic.get("skeptic_angle", claim)
+        speaker_idx = 0
+
+        while not self.budget.exhausted:
+            name, system_prompt, voice_id = personas[speaker_idx % 2]
+            other_name = personas[(speaker_idx + 1) % 2][0]
+
+            prompt = last_text if speaker_idx == 0 else f"{other_name} said: {last_text}"
+
+            try:
+                text = _llm(system_prompt, prompt)
+            except Exception as e:
+                logger.warning("Anthropic call failed for %s: %s", name, e)
+                break
+
+            if not text:
+                logger.warning("%s returned empty response — ending debate", name)
+                break
+
+            _speak(name, text, voice_id)
             self.budget.turns_used += 1
+            last_text = text
             speaker_idx += 1
+
+        # --- Closing statements (one per persona, not counted against budget) ---
+        closing_prompt = (
+            "The debate is wrapping up. Give your closing statement in 2 sentences: "
+            "your key takeaway and what you think this means going forward."
+        )
+        for name, system_prompt, voice_id in personas:
+            try:
+                closing = _llm(system_prompt, closing_prompt, max_tokens=150)
+                if closing:
+                    _speak(name, closing, voice_id)
+            except Exception as e:
+                logger.warning("Closing statement failed for %s: %s", name, e)
 
         return turns
 
@@ -369,12 +472,13 @@ class DebateOrchestrator:
     # ------------------------------------------------------------------
 
     def save_mp3(self, output_path: str) -> Optional[str]:
-        """Write all accumulated PCM audio to an MP3 file.
+        """Write all accumulated PCM audio to a file.
 
-        Concatenation is done once (O(n) join) — not per-chunk.
+        Tries MP3 first (requires ffmpeg). Falls back to WAV if ffmpeg is
+        not installed — renames the output path extension to .wav automatically.
 
         Returns:
-            The output path on success, None if no audio was captured.
+            The actual output path on success, None if no audio was captured.
         """
         if not self._all_audio_chunks:
             logger.warning("save_mp3: no audio captured — nothing to save")
@@ -387,9 +491,17 @@ class DebateOrchestrator:
             frame_rate=_SAMPLE_RATE,
             channels=1,
         )
-        segment.export(output_path, format="mp3")
-        logger.info("Saved debate MP3 → %s (%d KB)", output_path, len(raw_pcm) // 1024)
-        return output_path
+        try:
+            segment.export(output_path, format="mp3")
+            logger.info("Saved debate MP3 → %s (%d KB)", output_path, len(raw_pcm) // 1024)
+            return output_path
+        except FileNotFoundError:
+            # ffmpeg not installed — fall back to WAV (no external dependency)
+            wav_path = str(Path(output_path).with_suffix(".wav"))
+            logger.warning("ffmpeg not found — saving as WAV instead: %s", wav_path)
+            segment.export(wav_path, format="wav")
+            logger.info("Saved debate WAV → %s (%d KB)", wav_path, len(raw_pcm) // 1024)
+            return wav_path
 
     def _stream_audio(self, audio_queue: queue.Queue, buffered: bytes) -> None:
         """Stream audio to sounddevice in real time from the queue.

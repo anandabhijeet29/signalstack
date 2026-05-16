@@ -229,11 +229,11 @@ YOUR PRIVATE EVIDENCE (emphasize this in the debate — your opponent doesn't ha
 {skeptic_evidence}
 
 DEBATE RULES:
-- Keep each response to 3-5 punchy sentences. Never longer.
-- Engage directly with what your opponent just said before making your point.
-- Cite specific evidence or findings when you push back.
+- 2-3 sentences per turn. Speak naturally, as if thinking out loud — not reading from notes.
+- React to what your opponent just said before making your own point. Sound like you're actually listening.
+- Drop in specific evidence or a concrete example when it strengthens your case.
 - Stay in character. Never break character or acknowledge you're an AI.
-- When you're done speaking, end your turn naturally — don't say "over" or "your turn"."""
+- End your turn naturally — no sign-off phrases like "over to you" or "your turn"."""
 
     optimist_system_prompt = f"""You are {optimist_name}: {optimist_desc}
 
@@ -244,11 +244,11 @@ YOUR PRIVATE EVIDENCE (emphasize this in the debate — your opponent doesn't ha
 {optimist_evidence}
 
 DEBATE RULES:
-- Keep each response to 3-5 punchy sentences. Never longer.
-- Engage directly with what your opponent just said before making your point.
-- Cite specific evidence or findings when you push further.
+- 2-3 sentences per turn. Speak naturally, as if thinking out loud — not reading from notes.
+- React to what your opponent just said before making your own point. Sound like you're actually listening.
+- Drop in specific evidence or a concrete example when it strengthens your case.
 - Stay in character. Never break character or acknowledge you're an AI.
-- When you're done speaking, end your turn naturally — don't say "over" or "your turn"."""
+- End your turn naturally — no sign-off phrases like "over to you" or "your turn"."""
 
     return AsymmetricContext(
         skeptic_system_prompt=skeptic_system_prompt,
