@@ -1,14 +1,20 @@
 # SignalStack
 
-An AI-powered intelligence agent that reads tech and AI newsletters via RSS, autonomously investigates the most interesting claims, and generates a weekly digest with a visible investigation log showing every research decision.
+An AI-powered intelligence pipeline that reads tech and AI newsletters via RSS, autonomously investigates the most interesting claims, and generates a weekly digest — optionally including a voice debate between two AI personas arguing over the week's biggest stories.
 
 ## What It Does
 
-Most newsletter summarizers stop at the summary. SignalStack goes further: after summarizing articles, an agentic investigator reads the summaries, decides which claims are worth verifying, uses tools to fetch evidence, and writes an investigation log explaining what it found and why it matters.
+Most newsletter summarizers stop at the summary. SignalStack has three layers beyond that:
 
-The investigation log is the differentiator. It shows the agent's reasoning — not just what it summarized, but what it chose to investigate, what it found, and how different articles connect or contradict each other.
+1. **Investigation** — An agentic Sonnet-powered loop reads the summaries, picks 2–3 threads worth verifying, uses tools to fetch evidence, and writes a visible investigation log explaining what it found and why it matters.
 
-**Sample — from `examples/sample_investigation.md`:**
+2. **Debate** — A Haiku-powered text debate between a Skeptic and an Optimist, each primed with asymmetric evidence from the investigation log. The skeptic gets contradictions; the optimist gets breakthroughs.
+
+3. **Voice** — The debate can be rendered as audio using ElevenLabs: either via ConvAI agents (two live WebSocket sessions) or via the TTS fallback (Anthropic generates text, ElevenLabs synthesizes each turn with a distinct voice).
+
+The investigation log is the core differentiator — it shows the agent's reasoning, not just what it summarized.
+
+**Sample investigation thread:**
 
 ```
 ### Thread: "Compute scaling hitting an efficiency wall"
@@ -31,36 +37,45 @@ but misleading — inference-time compute and architectural efficiency are filli
 compute is deployable immediately — impact arrives faster than training timelines suggest.
 ```
 
-See [`examples/sample_investigation.md`](examples/sample_investigation.md) and [`examples/sample_digest.md`](examples/sample_digest.md) for full examples.
-
 ## How It Works
 
-SignalStack runs a multi-stage pipeline:
-
-1. **Ingest** — Fetches articles from RSS feeds concurrently using a thread pool
-2. **Deduplicate** — Filters previously seen articles using a local JSON store with configurable TTL
-3. **Rank** — Scores articles by keyword relevance (AI, compute, policy, startups) and title quality
-4. **Extract** — Pulls full article text concurrently via [trafilatura](https://github.com/adbar/trafilatura), then re-ranks with richer content
-5. **Summarize** — Sends each article to an OpenAI model for structured summary (TLDR, key insights, importance score 1–10)
-6. **Synthesize** — Identifies 3–5 cross-article themes from the combined summaries
-7. **Investigate** *(optional)* — Agentic loop that autonomously investigates interesting threads using a tool registry (`search_web`, `fetch_and_extract`, `find_related`), writes a visible investigation log
-8. **Publish** — Generates a markdown digest sorted by importance, saved to an Obsidian vault or printed to stdout
-
-## Architecture
-
-The investigator uses raw OpenAI tool-use calls with a hand-rolled tool registry — no agent framework. The agent loop runs until the LLM concludes or the research budget is exhausted.
-
 ```
-RSS → Rank → Extract → Summarize → Synthesize → Digest
-                                        ↓
-                               Investigator Agent
-                                 ├── Tool Registry
-                                 │   ├── search_web (Tavily)
-                                 │   ├── fetch_and_extract (trafilatura)
-                                 │   └── find_related (cosine similarity)
-                                 ├── Agent Loop (budget: 5 steps / 10 URLs)
-                                 └── Investigation Log → Digest
+RSS feeds
+  → Rank (keyword + title scoring)
+  → Extract (trafilatura, concurrent)
+  → Re-rank (with full article text)
+  → Summarize (Claude Haiku, structured JSON)
+  → Synthesize themes (Claude Haiku)
+  → Investigate (Claude Sonnet, tool-use loop)   ← optional
+  → Debate (Claude Haiku, asymmetric context)     ← optional
+  → Digest (Markdown, Obsidian-compatible)
+        + investigation_YYYY_MM_DD.json sidecar
+
+signalstack debate --from digest.md
+  → Load sidecar JSON (summaries + investigation trace)
+  → Build debate scaffold (Claude Haiku)
+  → Build asymmetric context (skeptic ← contradictions, optimist ← breakthroughs)
+  → Voice debate (ElevenLabs ConvAI or TTS fallback)
+  → MP3 / WAV output
 ```
+
+### Investigator agent
+
+The investigator runs a raw Anthropic tool-use loop — no agent framework. It continues until it reaches a natural conclusion (`stop_reason=end_turn`) or exhausts its research budget. Every step is recorded in an `InvestigationTrace` and rendered as a formatted markdown log.
+
+Tool registry:
+- `search_web` — Tavily search (requires `TAVILY_API_KEY`; excluded if not set)
+- `fetch_and_extract` — Full-text extraction via trafilatura
+- `find_related` — Cosine similarity over article summaries
+
+### Debate agent
+
+Two debate paths share the same scaffold and asymmetric context:
+
+- **ConvAI** (default) — Two ElevenLabs `Conversation` sessions, one per persona. `send_user_message()` injects the previous speaker's text. System prompts and first-message suppression are applied via `override_agent_config`.
+- **TTS fallback** (`--no-conversational-ai`) — Anthropic generates each turn as a stateless call; ElevenLabs TTS synthesizes audio with a distinct voice per persona. Reliable for environments without ConvAI agents configured.
+
+Each debate has an intro narration, N alternating turns, and closing statements from both personas.
 
 ## Default Feeds
 
@@ -75,67 +90,126 @@ Add or remove feeds in [`signalstack/data/feeds.yaml`](signalstack/data/feeds.ya
 ## Setup
 
 ```bash
-# Clone the repo
 git clone https://github.com/anandabhijeet29/signalstack.git
 cd signalstack
 
-# Create a virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
-# Install the package
 pip install -e .
-
-# Configure API keys
-echo "OPENAI_API_KEY=sk-..." > .env
-
-# Optional: enable web search in the investigator
-echo "TAVILY_API_KEY=tvly-..." >> .env
 ```
 
-Optionally set `OPENAI_MODEL` in `.env` to override the default model (`gpt-4o`).
+Create a `.env` file:
 
-A free [Tavily](https://tavily.com) API key (1,000 searches/month) enables `search_web`. Without it, the investigator still works using `fetch_and_extract` and `find_related`.
+```bash
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional: override models (defaults shown)
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001          # summarizer, synthesizer, debate text
+ANTHROPIC_INVESTIGATOR_MODEL=claude-sonnet-4-6     # investigator agent loop
+
+# Optional: enable web search in the investigator
+TAVILY_API_KEY=tvly-...
+
+# Required for voice debate
+ELEVENLABS_API_KEY=sk_...
+
+# Required for ConvAI debate (create agents at elevenlabs.io/app/conversational-ai)
+ELEVENLABS_SKEPTIC_AGENT_ID=agent_...
+ELEVENLABS_OPTIMIST_AGENT_ID=agent_...
+
+# Optional: override TTS voices for the fallback path (defaults from debate_personas.yaml)
+ELEVENLABS_SKEPTIC_VOICE_ID=EXAVITQu4vr4xnSDxMaL
+ELEVENLABS_OPTIMIST_VOICE_ID=TX3LPaxmHKxFdv7VOQHJ
+```
+
+A free [Tavily](https://tavily.com) key (1,000 searches/month) enables `search_web`. Without it, the investigator still works using `fetch_and_extract` and `find_related`.
+
+For voice output, [ffmpeg](https://ffmpeg.org/download.html) enables MP3 export. Without it, the audio saves as WAV automatically.
 
 ## Usage
 
+### `signalstack run`
+
 ```bash
-# Standard run — summarize and generate digest
+# Summarize and generate digest
 signalstack run
 
-# With agentic investigation
+# With investigation log
 signalstack run --investigate
 
-# Investigation with custom budget
+# With investigation + text debate
+signalstack run --investigate --debate
+
+# Save to Obsidian vault (also writes investigation_YYYY_MM_DD.json sidecar)
+signalstack run --investigate --vault-path ~/vault/Intelligence
+
+# Tune the investigator budget
 signalstack run --investigate --max-steps 10 --max-urls 15
 
-# Save to Obsidian vault
-signalstack run --investigate --vault-path ~/my-vault/Intelligence
+# Debug logging
+signalstack run --investigate --debate --verbose
 ```
-
-### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--top-n` | `5` | Number of top articles to include in the digest |
-| `--max-age-days` | `7` | Days before a seen URL expires and can reappear |
-| `--min-content-length` | `300` | Minimum extracted text length (chars) to use an article |
-| `--max-entries-per-feed` | `5` | Maximum entries to fetch per RSS feed |
-| `--vault-path` | `""` | Path to Obsidian vault folder for saving the digest |
-| `--investigate` | `false` | Run the agentic investigator after summarization |
-| `--max-steps` | `5` | Maximum tool-call steps for the investigator |
-| `--max-urls` | `10` | Maximum URLs the investigator can fetch |
-| `--verbose` / `-v` | `false` | Enable debug logging |
+| `--top-n` | `5` | Articles to include in the digest |
+| `--max-age-days` | `7` | Days before a seen URL expires |
+| `--min-content-length` | `300` | Minimum extracted text length (chars) |
+| `--max-entries-per-feed` | `5` | Max entries per RSS feed |
+| `--vault-path` | `""` | Obsidian vault folder; prints to stdout if omitted |
+| `--investigate` | `false` | Run the agentic investigator |
+| `--max-steps` | `5` | Max tool-call steps for the investigator |
+| `--max-urls` | `10` | Max URLs the investigator can fetch |
+| `--debate` | `false` | Run a text debate and include it in the digest |
+| `--debate-rounds` | `3` | Rounds of back-and-forth (skeptic + optimist per round) |
+| `--verbose` / `-v` | `false` | Debug logging |
 
-When `--vault-path` is omitted, the digest is printed to stdout.
+### `signalstack debate`
+
+Loads a previously saved digest and its investigation sidecar, then runs a voice debate.
+
+```bash
+# Run first to generate the sidecar JSON
+signalstack run --investigate --vault-path ~/vault/Intelligence
+
+# Then run the voice debate (ConvAI — requires ELEVENLABS_*_AGENT_ID)
+signalstack debate --from ~/vault/Intelligence/signalstack_weekly_2026_05_16.md
+
+# TTS fallback (requires only ELEVENLABS_API_KEY, no ConvAI agents)
+signalstack debate --from ~/vault/Intelligence/signalstack_weekly_2026_05_16.md \
+  --no-conversational-ai
+
+# Custom personas and turn count
+signalstack debate --from digest.md --personas doomer,accelerationist --max-turns 8
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--from` | `""` | Path to digest `.md`; finds `investigation_YYYY_MM_DD.json` alongside it |
+| `--personas` | `skeptic,optimist` | Two persona names from `debate_personas.yaml` |
+| `--max-turns` | `6` | Total debate turns (excluding intro and closings) |
+| `--no-conversational-ai` | `false` | Use TTS fallback instead of ElevenLabs ConvAI |
+| `--output` | `debate_YYYY-MM-DD.mp3` | Output audio file path |
+| `--verbose` / `-v` | `false` | Debug logging |
+
+Available personas: `skeptic`, `optimist`, `doomer`, `accelerationist`. Add custom personas in [`signalstack/data/debate_personas.yaml`](signalstack/data/debate_personas.yaml).
 
 ## Output
 
-The digest is saved as `signalstack_weekly_YYYY_MM_DD.md` with YAML frontmatter. With `--investigate`, it includes:
+`signalstack run --investigate --debate --vault-path ~/vault` produces:
 
-- Major cross-article themes
-- **Investigation log** — agent reasoning, tool calls, findings, cross-article connections
-- Per-article sections with TLDR, summary, key insights, importance score, reading time, and source link
+- `signalstack_weekly_YYYY_MM_DD.md` — Full digest with:
+  - Major cross-article themes
+  - Investigation log (agent reasoning, tool calls, findings, connections)
+  - Debate transcript (intro → turns → closing statements)
+  - Per-article sections: TLDR, summary, key insights, importance score, reading time, link
+- `investigation_YYYY_MM_DD.json` — Sidecar with summaries + investigation trace for `signalstack debate --from`
+
+`signalstack debate` produces:
+- `debate_YYYY-MM-DD.mp3` (or `.wav` if ffmpeg is not installed)
+- Transcript printed to stdout
 
 ## Tech Stack
 
@@ -143,62 +217,46 @@ The digest is saved as `signalstack_weekly_YYYY_MM_DD.md` with YAML frontmatter.
 |-------|-----------|
 | Language | Python 3.10+ |
 | CLI | [Typer](https://typer.tiangolo.com/) |
-| LLM / Agent | [OpenAI API](https://platform.openai.com/) (Responses API, tool-use) |
+| LLM / Agents | [Anthropic API](https://docs.anthropic.com/) — Haiku (summarizer, synthesizer, debate) + Sonnet (investigator) |
 | RSS Parsing | [feedparser](https://github.com/kurtmckee/feedparser) |
 | Text Extraction | [trafilatura](https://github.com/adbar/trafilatura) |
 | Web Search | [Tavily](https://tavily.com) (optional) |
-| Cosine Similarity | Python stdlib (`collections.Counter`) |
+| Voice Synthesis | [ElevenLabs](https://elevenlabs.io) — ConvAI or TTS |
+| Audio Output | [pydub](https://github.com/jiaaro/pydub) + [sounddevice](https://python-sounddevice.readthedocs.io/) |
 | Config | PyYAML, python-dotenv |
 | Testing | pytest |
 | Output | Markdown with YAML frontmatter (Obsidian-compatible) |
-
-## Testing
-
-```bash
-pip install pytest
-python -m pytest tests/ -v
-```
-
-The test suite covers all pipeline stages with mocked LLM calls, including the agent loop (budget exhaustion, tool dispatch, consecutive failure handling) and tool implementations.
 
 ## Project Structure
 
 ```
 signalstack/
-  cli.py                  # Typer CLI entry point
-  pipeline.py             # Pipeline orchestration
+  cli.py                    # Typer CLI — 'run' and 'debate' commands
+  pipeline.py               # Pipeline orchestration + investigation sidecar
   models/
-    article.py            # Article dataclass
+    article.py              # Article dataclass
   ingestion/
-    feed_loader.py        # Load feed URLs from YAML
-    rss_reader.py         # Concurrent RSS feed fetching
+    feed_loader.py          # Load feed URLs from YAML
+    rss_reader.py           # Concurrent RSS feed fetching
   processing/
-    extractor.py          # Concurrent full-text extraction via trafilatura
-    article_store.py      # Seen-article tracking (JSON)
+    extractor.py            # Concurrent full-text extraction via trafilatura
+    article_store.py        # Seen-article tracking (JSON, TTL-based)
   agents/
-    ranker.py             # Keyword + title scoring
-    summarizer.py         # LLM-powered article summarization
-    synthesizer.py        # Cross-article theme synthesis
-    investigator.py       # Agentic research loop (tool registry + budget)
-    tools.py              # Tool implementations (search, fetch, find_related)
-    trace.py              # Investigation trace and log formatting
+    ranker.py               # Keyword + title scoring
+    summarizer.py           # Claude Haiku article summarization
+    synthesizer.py          # Cross-article theme synthesis
+    investigator.py         # Agentic research loop (Sonnet + tool registry + budget)
+    tools.py                # Tool implementations: search_web, fetch_and_extract, find_related
+    trace.py                # InvestigationTrace — step recording, JSON serialization, markdown log
+    debate_context.py       # Debate scaffold generation + asymmetric system prompts
+    debate_agent.py         # DebateOrchestrator (ConvAI + TTS fallback) + run_text_debate
   digest/
-    generator.py          # Markdown digest generation
+    generator.py            # Markdown digest assembly
   data/
-    feeds.yaml            # RSS feed URLs
-examples/
-  sample_investigation.md # Sample investigation log
-  sample_digest.md        # Sample full digest with investigation
+    feeds.yaml              # RSS feed URLs
+    debate_personas.yaml    # Persona configs: name, description, voice_id
 tests/
-  test_ranker.py          # Ranking and scoring tests
-  test_article_store.py   # Deduplication and persistence tests
-  test_extractor.py       # Text extraction tests
-  test_feed_loader.py     # YAML feed loading tests
-  test_generator.py       # Digest generation tests
-  test_summarizer.py      # LLM summarization tests (mocked)
-  test_synthesizer.py     # Theme synthesis tests (mocked)
-  test_investigator.py    # Agent loop tests (mocked)
-  test_tools.py           # Tool implementation tests
+  ...                       # pytest suite covering all pipeline stages
 ```
 
 ## License
