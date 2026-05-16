@@ -233,10 +233,41 @@ class InvestigatorAgent:
                 messages.append({"role": "user", "content": tool_results})
 
             if budget.exhausted and not trace.conclusion:
-                trace.add_conclusion(
-                    f"Investigation budget exhausted after {budget.steps_used} steps. "
-                    "Some threads were not fully explored."
-                )
+                # Budget exhausted — synthesize the investigation log from what
+                # was found. Use a fresh prompt (not the tool-use conversation
+                # history) so the model gets an explicit write instruction.
+                try:
+                    step_summaries = []
+                    for step in trace.steps:
+                        if step.success and step.result:
+                            excerpt = step.result[:600].replace("\n", " ").strip()
+                            step_summaries.append(
+                                f"Tool: {step.tool} | Args: {step.args}\nFound: {excerpt}"
+                            )
+                    steps_text = "\n\n".join(step_summaries) or "No successful tool calls."
+                    synthesis_prompt = (
+                        f"You completed {budget.steps_used} investigation steps before "
+                        f"the budget ran out. Here is what you found:\n\n{steps_text}\n\n"
+                        "Write your complete investigation log now using the exact format "
+                        "specified in your instructions (## Investigation Log, ### Thread blocks, etc.). "
+                        "Base it only on the evidence above."
+                    )
+                    final_response = llm_client.messages.create(
+                        model=MODEL_NAME,
+                        max_tokens=4096,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": synthesis_prompt}],
+                    )
+                    text_blocks = [b for b in final_response.content if b.type == "text"]
+                    conclusion = text_blocks[0].text if text_blocks else ""
+                    trace.add_conclusion(
+                        conclusion or f"Investigation complete after {budget.steps_used} steps."
+                    )
+                except Exception as exc:
+                    logger.warning("Final conclusion call failed: %s", exc)
+                    trace.add_conclusion(
+                        f"Investigation complete after {budget.steps_used} steps."
+                    )
 
         except Exception as exc:
             logger.warning("Investigation loop failed: %s", exc)

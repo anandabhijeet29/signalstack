@@ -128,7 +128,12 @@ def build_scaffold(
                 {"role": "user", "content": prompt},
             ],
         )
-        raw = response.content[0].text
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
         scaffold = json.loads(raw)
         if "topics" not in scaffold or not scaffold["topics"]:
             logger.warning("Scaffold missing 'topics' key — using default")
