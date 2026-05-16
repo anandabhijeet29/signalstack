@@ -9,7 +9,7 @@ from signalstack.models.article import Article
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 client: Optional[Anthropic] = None
 
@@ -25,6 +25,7 @@ def _get_client() -> Optional[Anthropic]:
         client = None
     return client
 
+
 SYSTEM_PROMPT = (
     "You are an analyst creating intelligence briefings from technology and AI "
     "articles. Your task is to extract the most important signal from the article "
@@ -32,7 +33,7 @@ SYSTEM_PROMPT = (
 )
 
 USER_PROMPT_TEMPLATE = """
-Analyze the following article and return structured JSON.
+Analyze the following article and return structured JSON only — no markdown, no explanation.
 
 Focus on:
 - the core thesis of the article
@@ -89,11 +90,18 @@ def summarize_article(
                         f"Title: {article.title}\n\n"
                         f"Article:\n{text}"
                     ),
-                },
+                }
             ],
         )
-        output_text = response.content[0].text
-        parsed = json.loads(output_text)
+
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        parsed = json.loads(raw)
 
         result = {
             "title": article.title,

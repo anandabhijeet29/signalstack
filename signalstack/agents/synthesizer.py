@@ -5,7 +5,7 @@ import os
 from anthropic import Anthropic
 
 
-MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-3-5")
+MODEL_NAME = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 client: Optional[Anthropic] = None
 
@@ -31,7 +31,7 @@ USER_PROMPT = (
     "Analyze the following article summaries.\n\n"
     "Identify the 3-5 most important themes or developments that appear across "
     "these articles.\n\n"
-    "Return JSON with:\n\n"
+    "Return valid JSON only — no markdown, no explanation.\n\n"
     'themes: ["theme 1", "theme 2", "theme 3"]'
 )
 
@@ -67,8 +67,14 @@ def synthesize_themes(summaries: List[Dict]) -> Optional[List[str]]:
             ],
         )
 
-        output_text = response.content[0].text
-        parsed = json.loads(output_text)
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        parsed = json.loads(raw)
         themes = parsed.get("themes")
         if not isinstance(themes, list):
             return None

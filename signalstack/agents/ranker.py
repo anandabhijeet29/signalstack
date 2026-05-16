@@ -16,13 +16,16 @@ KEYWORDS = (
     "startup",
     "policy",
     "research",
+    "product",
+    "strategy"
 )
 
 
 def _score_article(article: Article) -> float:
-    title = article.title.strip()
-    preview = (article.preview or "").strip()
-    searchable_text = f"{title} {preview}".lower()
+    title = str(article.title or "").strip()
+    summary = str(article.summary or "").strip()
+    preview = str(article.preview or "").strip()
+    searchable_text = f"{title} {summary} {preview}".lower()
 
     title_length_score = min(len(title), 120) / 12.0
 
@@ -41,7 +44,7 @@ def rank_articles(articles: List[Article], top_n: int = 5) -> List[Article]:
 
     ranked = sorted(
         articles,
-        key=lambda article: (-_score_article(article), article.title.lower()),
+        key=lambda a: (-_score_article(a), str(a.title or "").lower()),
     )
     result = ranked[:top_n]
 
